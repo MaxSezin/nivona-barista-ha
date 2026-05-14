@@ -475,6 +475,10 @@
     "connection_unstable": {
       "title": "Unstable BLE connection",
       "description": "The coffee machine disconnected {count} times in the last hour. Consider moving the ESPHome BLE proxy closer to the machine, or check for Bluetooth interference."
+    },
+    "pairing_wedged": {
+      "title": "Запущено восстановление BLE-сопряжения",
+      "description": "Сопряжение с кофемашиной ({address}) зависло (машина отвергала наше рукопожатие — обычно при этом на дисплее горит красный индикатор Bluetooth). Интеграция автоматически перезагрузила ESPHome BLE-прокси, чтобы сбросить устаревший кэш BLEDevice; обычно это устраняет проблему за минуту. Если варка по-прежнему не работает, вызовите сервис `melitta_barista.repair_connection` вручную или приложите логи к issue #10."
     }
   }
 }

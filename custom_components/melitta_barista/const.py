@@ -541,6 +541,19 @@ DEFAULT_BLE_CONNECT_TIMEOUT: float = 15.0
 DEFAULT_PAIR_TIMEOUT: float = 30.0
 DEFAULT_RECIPE_RETRIES: int = 3
 DEFAULT_INITIAL_CONNECT_DELAY: float = 3.0
+# Seconds to wait between a failed pair=False handshake and the next
+# pair=True attempt. Lets the ESP proxy / machine BLE stack release the
+# previous connection slot — without this delay we frequently hit a
+# 60 s `TimeoutAPIError waiting for BluetoothDevicePairingResponse`
+# on the ESPHome path.
+DEFAULT_PAIR_SETTLE_DELAY: float = 2.0
+# How many consecutive failed connect() calls must accumulate before the
+# integration triggers an automatic pairing-recovery routine (which
+# reloads the ESPHome BLE proxy entry to evict the cached BLEDevice).
+# Default 5 mirrors the manual delete+re-add cadence users have been
+# running into: a couple of fast retries + a couple of slow back-offs
+# before we conclude the bond/cache is wedged.
+DEFAULT_REPAIR_AFTER_FAILURES: int = 5
 
 PROCESS_MAP: dict[str, int] = {"none": 0, "coffee": 1, "milk": 2, "water": 3}
 INTENSITY_MAP: dict[str, int] = {

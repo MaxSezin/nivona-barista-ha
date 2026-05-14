@@ -3,6 +3,10 @@
     "connection_unstable": {
       "title": "Unstable BLE connection",
       "description": "The coffee machine disconnected {count} times in the last hour. Consider moving the ESPHome BLE proxy closer to the machine, or check for Bluetooth interference."
+    },
+    "pairing_wedged": {
+      "title": "BLE pairing recovery triggered",
+      "description": "The pairing with the coffee machine ({address}) appeared wedged (the machine kept rejecting our handshake — typically shown as a red Bluetooth indicator on the machine display). The integration automatically reloaded the ESPHome BLE proxy to clear a stale cached BLEDevice; this normally resolves the issue within a minute. If brewing still fails, call the `melitta_barista.repair_connection` service manually, or share logs on issue #10."
     }
   },
   "exceptions": {

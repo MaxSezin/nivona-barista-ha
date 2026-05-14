@@ -2,6 +2,101 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.51.0-beta.1] — 2026-05-14 — Pairing recovery (PRE-RELEASE)
+
+Pre-release. Must be installed explicitly from HACS by toggling
+"Show beta versions" on the integration page. Targets issue #10:
+after long BLE silence the encrypted HU handshake gets stuck, the
+machine displays a red Bluetooth indicator, and the only known
+recovery used to be removing and re-adding the integration via UI.
+
+This release adds a 3-layer fix; each layer is independent so partial
+backports work.
+
+### Root cause (full write-up: see `docs/PAIRING.md` after this commit)
+
+habluetooth's `BaseHaRemoteScanner._previous_service_info` caches the
+`BLEDevice` instance per peer address with a frozen
+`details["source"]` / `details["address_type"]`. After long quiet
+periods the cached `source` can point at a dead scanner UUID (e.g.
+the ESP proxy reconnected to HA between sessions), or the address
+type can drift after the machine resets its bond. Every reconnect
+attempt then hands `establish_connection` that stale BLEDevice, the
+HU response never finds its way back, and the machine displays red.
+
+`hass.config_entries.async_reload(melitta_entry)` does NOT clear that
+cache (the scanner lives on the **ESPHome** entry, not ours).
+Deleting the integration entry happens to work because by the time
+the user finishes the config flow, the long pause has caused
+`_previous_service_info[address]` to expire on its own — the next
+advertisement then builds a fresh BLEDevice with current `source` /
+`address_type`.
+
+### Added — Layer 3 (root-cause recovery)
+
+- `melitta_barista.repair_connection` service. Walks every melitta
+  config entry, finds the ESPHome config entry that owns the proxy
+  scanner for that peer (via `bluetooth.async_scanner_devices_by_address`
+  and matching `scanner.source` against `ConfigEntry.unique_id`), and
+  reloads the ESPHome entry. The reload unregisters the scanner,
+  which is the only HA-public path that evicts the cached BLEDevice.
+  The next advertisement builds a fresh one and the next `pair=True`
+  succeeds in ~1 s.
+- Automatic recovery: after `DEFAULT_REPAIR_AFTER_FAILURES = 5`
+  consecutive failed `connect()` calls the reconnect loop calls the
+  same routine without user action. Counter resets on every successful
+  connect; threshold can be set to 0 to disable (useful for debugging
+  the underlying transport).
+- Repair issue (`pairing_wedged_<address>`) raised at the same
+  threshold so the user gets a UI card explaining what happened and
+  pointing at issue #10 for logs. Auto-cleared on the next successful
+  connect.
+- New constants in `const.py`: `DEFAULT_PAIR_SETTLE_DELAY = 2.0`,
+  `DEFAULT_REPAIR_AFTER_FAILURES = 5`.
+
+### Added — Layer 1 (paint-the-bike-shed timing fix)
+
+- 2-second settle delay in `_connect_impl` between a failed
+  `pair=False` handshake and the next `pair=True` attempt, and again
+  between `_try_unpair()` and the final `pair=True`. Without this gap
+  the ESP proxy / BlueZ does not always release the previous BLE
+  socket before we re-pair, manifesting as the 60-second
+  `TimeoutAPIError waiting for BluetoothDevicePairingResponse` users
+  see in logs. Configurable via the new `pair_settle_delay` ctor arg.
+
+### Added — Layer 2 (hygiene)
+
+- `disconnect()` now resets `self._paired = False`. Field was tracked
+  on connect but never cleared — kept the bond-state mental model
+  inconsistent across reconnects.
+
+### Fixed
+
+- Reconnect-loop now tracks `_consecutive_connect_failures` and
+  resets it on every successful `connect()`. Surfaces as a public
+  property `consecutive_connect_failures` for diagnostics.
+
+### Tests
+
+- `tests/test_pairing_recovery.py` — 10 new tests covering the settle
+  delay invariant (no sleep on success, sleep between attempts on
+  failure), disconnect hygiene, counter increment / reset, callback
+  firing exactly at threshold, threshold=0 off switch, missing
+  callback not crashing the loop, and the public callback API.
+
+### Known limitations
+
+- The recovery does not auto-tune itself: if the ESPHome proxy keeps
+  re-acquiring stale state quickly (e.g. flaky power), the user will
+  see repeated reload spikes. The `repair_after_failures` knob is
+  exposed for diagnostics but not yet wired through Options Flow.
+- The repair routine assumes one ESPHome entry per peer address. A
+  setup with multiple proxies all hearing the same machine will only
+  reload the first matching entry per cycle.
+- No `melitta_barista.repair_connection` target selector in the
+  services dialog yet — the service applies to every melitta entry
+  it finds.
+
 ## [0.50.2] — 2026-05-14 — hassfest validation fixes
 
 Closes the three findings raised by the nightly `validate-hassfest`
