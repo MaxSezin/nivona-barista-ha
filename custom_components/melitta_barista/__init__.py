@@ -273,21 +273,29 @@ def _find_proxy_entry_for_address(
 
     # Collect candidate (entry, normalised_keys) pairs once so every scanner
     # iteration is O(entries) not O(entries * lookups).
+    #
+    # IMPORTANT: ESP32 has separate WiFi and Bluetooth MACs (BT = WiFi + 2),
+    # and the scanner.source is the BT MAC, while entry.unique_id is the
+    # WiFi MAC. We MUST include device_info.bluetooth_mac_address as a key —
+    # otherwise the matcher silently misses every ESPHome proxy.
     candidates: list[tuple[ConfigEntry, set[str]]] = []
     for entry in esphome_entries:
         keys: set[str] = set()
         if entry.unique_id:
             keys.add(_norm(entry.unique_id))
+        # entry.data may carry CONF_BLUETOOTH_MAC_ADDRESS (persisted at
+        # discovery / re-config time) — covers the case where runtime_data
+        # isn't ready yet because the ESPHome entry is mid-setup.
+        bt_mac_persisted = entry.data.get("bluetooth_mac_address")
+        if bt_mac_persisted:
+            keys.add(_norm(bt_mac_persisted))
         runtime = getattr(entry, "runtime_data", None)
         device_info = getattr(runtime, "device_info", None) if runtime else None
-        mac = getattr(device_info, "mac_address", None) if device_info else None
-        if mac:
-            keys.add(_norm(mac))
-        name = getattr(device_info, "name", None) if device_info else None
-        if name:
-            # Last resort: name match (e.g. scanner source is the device
-            # mDNS name). Lowercased + dash-stripped to match _norm.
-            keys.add(_norm(name))
+        if device_info is not None:
+            for attr in ("bluetooth_mac_address", "mac_address", "name"):
+                value = getattr(device_info, attr, None)
+                if value:
+                    keys.add(_norm(value))
         if keys:
             candidates.append((entry, keys))
 

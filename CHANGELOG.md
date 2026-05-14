@@ -2,6 +2,31 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.51.0-beta.5] — 2026-05-14 — Proxy matcher: use BT MAC (not WiFi MAC)
+
+### Fixed
+
+beta.4's robust matcher still missed every proxy in the wild because
+of a subtle ESP32 hardware detail: **every ESP32 has separate WiFi
+and Bluetooth MAC addresses (BT = base + 2)**. The scanner's
+`source` field is the BT MAC. ESPHome's `device_info.mac_address`
+and `entry.unique_id`, however, are the WiFi MAC. So the matcher
+compared two MACs that were always different by a fixed offset and
+never lined up.
+
+The matcher now also checks:
+- `entry.runtime_data.device_info.bluetooth_mac_address` — the
+  ESPHome-reported BT MAC at runtime.
+- `entry.data["bluetooth_mac_address"]` — the value ESPHome
+  persists at discovery/reconfigure time (manager.py:563-567 in
+  HA core), covers the case where the proxy entry is mid-setup
+  and runtime_data isn't populated yet.
+
+Verified against Home Assistant developer docs (`scanner.source`
+is documented as "source MAC address") via context7. Confirmed
+no public API exposes a scanner → config_entry_id reverse lookup;
+matching by MAC keys is the supported pattern.
+
 ## [0.51.0-beta.4] — 2026-05-14 — Force re-pair option + robust proxy matcher
 
 ### Added — Options Flow "Force re-pair (hard)"
