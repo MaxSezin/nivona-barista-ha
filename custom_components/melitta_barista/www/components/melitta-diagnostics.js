@@ -47,7 +47,10 @@ class MelittaDiagnostics extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    if (this._timer) clearInterval(this._timer);
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
   }
 
   updated(changedProps) {

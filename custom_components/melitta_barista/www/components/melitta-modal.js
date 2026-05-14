@@ -45,9 +45,9 @@ class MelittaModal extends LitElement {
     if (!this.open) return "";
     return html`
       <div class="backdrop" @click=${(e) => this._onBackdropClick(e)}>
-        <div class="dialog" role="dialog" aria-modal="true">
+        <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="melitta-modal-title">
           <header>
-            <h3>${this.title}</h3>
+            <h3 id="melitta-modal-title">${this.title}</h3>
             <button class="close" @click=${() => this._close()}>×</button>
           </header>
           <div class="body">

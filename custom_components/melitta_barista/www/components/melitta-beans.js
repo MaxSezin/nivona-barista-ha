@@ -297,7 +297,7 @@ class MelittaBeans extends LitElement {
         // see it AND edit it. Skips the append if the recommendation is
         // already present (idempotent on re-autofill).
         if (parsed.brewing_recommendation) {
-          const note = `Заваривание: ${parsed.brewing_recommendation}`;
+          const note = `${this._t("beans.brewing_label")}: ${parsed.brewing_recommendation}`;
           if (!(merged.composition || "").includes(parsed.brewing_recommendation)) {
             merged.composition = merged.composition
               ? `${merged.composition}\n${note}`

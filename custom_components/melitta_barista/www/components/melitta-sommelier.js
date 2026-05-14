@@ -135,7 +135,7 @@ class MelittaSommelier extends LitElement {
       if (this._allowToppings.length === 0) this._allowToppings = [...this._availableToppings];
       if (this._allowMilk.length === 0) this._allowMilk = [...this._availableMilk];
     } catch (e) {
-      this._error = `Не удалось загрузить добавки: ${e.message || e}`;
+      this._error = `${this._t("sommelier.addins_load_failed")}: ${e.message || e}`;
     }
   }
 
@@ -215,9 +215,9 @@ class MelittaSommelier extends LitElement {
         recipe_id: recipeId,
       });
       this._favoritedIds = [...this._favoritedIds, recipeId];
-      this._info = "★ В избранном";
+      this._info = this._t("sommelier.favorited_toast");
     } catch (e) {
-      this._error = `Не удалось добавить в избранное: ${e.message || e}`;
+      this._error = `${this._t("sommelier.favorite_failed")}: ${e.message || e}`;
     } finally {
       this._favoriting = "";
     }
@@ -260,10 +260,10 @@ class MelittaSommelier extends LitElement {
     return html`
       <details class="block" ?open=${this._showConstraints}
         @toggle=${(e) => { this._showConstraints = e.target.open; }}>
-        <summary>Ограничения и настроение</summary>
+        <summary>${this._t("sommelier.constraints_heading")}</summary>
         <div class="block-body">
           <div class="field">
-            <label>Объём чашки</label>
+            <label>${this._t("sommelier.cup_size")}</label>
             <select .value=${this._cupSize}
               @change=${(e) => { this._cupSize = e.target.value; }}>
               ${CUP_SIZES.map((c) => html`
@@ -273,7 +273,7 @@ class MelittaSommelier extends LitElement {
           </div>
 
           <div class="field">
-            <label>Настроение (можно несколько)</label>
+            <label>${this._t("sommelier.mood_label")}</label>
             <div class="chips">
               ${MOODS.map((m) => html`
                 <button class=${this._moods.includes(m) ? "chip on" : "chip"}
@@ -283,7 +283,7 @@ class MelittaSommelier extends LitElement {
           </div>
 
           <div class="field">
-            <label>Повод (предложен по времени суток)</label>
+            <label>${this._t("sommelier.occasion_label")}</label>
             <select .value=${this._occasion}
               @change=${(e) => { this._occasion = e.target.value; }}>
               <option value="" ?selected=${!this._occasion}>—</option>
@@ -294,7 +294,7 @@ class MelittaSommelier extends LitElement {
           </div>
 
           <div class="field">
-            <label>Температура</label>
+            <label>${this._t("sommelier.temperature_label")}</label>
             <div class="chips">
               ${TEMPERATURES.map((t_) => html`
                 <button class=${this._temperature === t_ ? "chip on" : "chip"}
@@ -304,7 +304,7 @@ class MelittaSommelier extends LitElement {
           </div>
 
           <div class="field">
-            <label>Кофеин</label>
+            <label>${this._t("sommelier.caffeine_label")}</label>
             <select .value=${this._caffeine}
               @change=${(e) => { this._caffeine = e.target.value; }}>
               ${CAFFEINE_PREFS.map((c) => html`
@@ -314,7 +314,7 @@ class MelittaSommelier extends LitElement {
           </div>
 
           <div class="field">
-            <label>Диетические ограничения (можно несколько)</label>
+            <label>${this._t("sommelier.dietary_label")}</label>
             <div class="chips">
               ${DIETARY.map((d) => html`
                 <button class=${this._dietary.includes(d) ? "chip on" : "chip"}
@@ -332,7 +332,7 @@ class MelittaSommelier extends LitElement {
       return html`
         <div class="field">
           <label>${title}</label>
-          <span class="hint">— не настроено в Добавках</span>
+          <span class="hint">${this._t("sommelier.addin_unconfigured")}</span>
         </div>
       `;
     }
@@ -354,11 +354,11 @@ class MelittaSommelier extends LitElement {
     return html`
       <details class="block" ?open=${this._showAddins}
         @toggle=${(e) => { this._showAddins = e.target.open; }}>
-        <summary>Доступные добавки (мульти-выбор)</summary>
+        <summary>${this._t("sommelier.addins_heading")}</summary>
         <div class="block-body">
-          ${this._renderAddinSection("Сиропы", this._availableSyrups, "_allowSyrups")}
-          ${this._renderAddinSection("Топинги", this._availableToppings, "_allowToppings")}
-          ${this._renderAddinSection("Молоко", this._availableMilk, "_allowMilk")}
+          ${this._renderAddinSection(this._t("sommelier.section_syrups"), this._availableSyrups, "_allowSyrups")}
+          ${this._renderAddinSection(this._t("sommelier.section_toppings"), this._availableToppings, "_allowToppings")}
+          ${this._renderAddinSection(this._t("sommelier.section_milk"), this._availableMilk, "_allowMilk")}
         </div>
       </details>
     `;
@@ -437,7 +437,7 @@ class MelittaSommelier extends LitElement {
               <div class="actions">
                 <button class="fav"
                   ?disabled=${this._favoriting === r.id || fav}
-                  title=${fav ? "В избранном" : "Добавить в избранное"}
+                  title=${fav ? this._t("sommelier.fav_in") : this._t("sommelier.fav_add")}
                   @click=${() => this._favorite(r.id)}>
                   ${fav ? "★" : "☆"}
                 </button>
@@ -453,7 +453,7 @@ class MelittaSommelier extends LitElement {
             ${r.description ? html`<p class="desc">${r.description}</p>` : ""}
 
             <div class="machine-line">
-              <span class="machine-label">Machine:</span>
+              <span class="machine-label">${this._t("sommelier.machine_label")}</span>
               ${this._renderComponent(r.component1)}
               ${this._renderComponent(r.component2)}
             </div>
@@ -473,7 +473,7 @@ class MelittaSommelier extends LitElement {
 
             ${r.reasoning ? html`
               <details class="reasoning">
-                <summary>Why?</summary>
+                <summary>${this._t("sommelier.why")}</summary>
                 <p>${r.reasoning}</p>
               </details>
             ` : ""}
