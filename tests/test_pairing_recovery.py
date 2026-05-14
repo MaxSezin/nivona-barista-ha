@@ -248,3 +248,65 @@ class TestRepairCallbackAPI:
         client = MelittaBleClient("AA:BB:CC:DD:EE:FF")
         client._consecutive_connect_failures = 7
         assert client.consecutive_connect_failures == 7
+
+
+# ── Manual recovery via Options Flow ───────────────────────────────────
+
+
+class TestOptionsRepairStep:
+    """The "Repair connection" menu item routes to _async_repair_pairing."""
+
+    async def test_repair_step_calls_repair_routine_and_aborts_proxy(self):
+        from custom_components.melitta_barista.config_flow import MelittaOptionsFlow
+
+        flow = MelittaOptionsFlow(MagicMock(entry_id="abc"))
+        flow.hass = MagicMock()
+
+        with patch(
+            "custom_components.melitta_barista._async_repair_pairing",
+            new=AsyncMock(return_value=True),
+        ) as patched:
+            result = await flow.async_step_repair(user_input={})
+
+        patched.assert_awaited_once()
+        assert result["type"] == "abort"
+        assert result["reason"] == "repair_proxy_reloaded"
+
+    async def test_repair_step_aborts_local_when_no_proxy(self):
+        from custom_components.melitta_barista.config_flow import MelittaOptionsFlow
+
+        flow = MelittaOptionsFlow(MagicMock(entry_id="abc"))
+        flow.hass = MagicMock()
+
+        with patch(
+            "custom_components.melitta_barista._async_repair_pairing",
+            new=AsyncMock(return_value=False),
+        ):
+            result = await flow.async_step_repair(user_input={})
+
+        assert result["type"] == "abort"
+        assert result["reason"] == "repair_local_reconnect"
+
+    async def test_repair_step_aborts_failed_on_exception(self):
+        from custom_components.melitta_barista.config_flow import MelittaOptionsFlow
+
+        flow = MelittaOptionsFlow(MagicMock(entry_id="abc"))
+        flow.hass = MagicMock()
+
+        with patch(
+            "custom_components.melitta_barista._async_repair_pairing",
+            new=AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            result = await flow.async_step_repair(user_input={})
+
+        assert result["type"] == "abort"
+        assert result["reason"] == "repair_failed"
+
+    async def test_repair_step_shows_form_on_first_entry(self):
+        from custom_components.melitta_barista.config_flow import MelittaOptionsFlow
+
+        flow = MelittaOptionsFlow(MagicMock(entry_id="abc"))
+        result = await flow.async_step_repair(user_input=None)
+
+        assert result["type"] == "form"
+        assert result["step_id"] == "repair"

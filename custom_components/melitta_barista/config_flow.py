@@ -419,7 +419,47 @@ class MelittaOptionsFlow(OptionsFlow):
         """Show options menu."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["basic", "advanced"],
+            menu_options=["basic", "advanced", "repair"],
+        )
+
+    async def async_step_repair(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manual pairing recovery — same routine as the auto-trigger.
+
+        See `_async_repair_pairing` in __init__.py for the full mechanism.
+        TL;DR: reloads the ESPHome BLE proxy config entry that owns the
+        scanner for this machine, which evicts the cached BLEDevice from
+        habluetooth's `_previous_service_info`. Next advertisement
+        rebuilds it with fresh `details["source"]` / `details["address_type"]`
+        and the next `pair=True` succeeds.
+        """
+        if user_input is not None:
+            # Run the same routine the reconnect loop calls automatically.
+            # Importing lazily to avoid a circular import at module-load.
+            from . import _async_repair_pairing  # noqa: PLC0415
+
+            try:
+                proxy_reloaded = await _async_repair_pairing(
+                    self.hass, self._config_entry,
+                )
+            except Exception:
+                _LOGGER.exception("Manual repair_connection failed")
+                return self.async_abort(reason="repair_failed")
+            return self.async_abort(
+                reason=(
+                    "repair_proxy_reloaded" if proxy_reloaded
+                    else "repair_local_reconnect"
+                ),
+            )
+
+        # First time through: show a confirmation form so the user
+        # explicitly opts in (the routine briefly disconnects + reloads
+        # the ESPHome entry which can affect other peers on the same
+        # proxy).
+        return self.async_show_form(
+            step_id="repair",
+            data_schema=vol.Schema({}),
         )
 
     async def async_step_basic(

@@ -2,6 +2,29 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.51.0-beta.2] — 2026-05-14 — Repair step in Options Flow
+
+Builds on beta.1. Same recovery routine, now also exposed as a UI
+button — no need to remember the service name.
+
+### Added
+
+- "Repair connection" entry in the integration's Options Flow menu
+  (Configure → Repair connection → Submit). Calls the same
+  `_async_repair_pairing` routine that the service and the auto-
+  trigger use. Three abort outcomes with localised messages:
+  `repair_proxy_reloaded` (an ESPHome entry was reloaded),
+  `repair_local_reconnect` (no proxy found — fell back to a local
+  disconnect + advertisement wait), `repair_failed` (the routine
+  raised — see HA logs).
+- 4 new tests in `tests/test_pairing_recovery.py` covering the three
+  abort paths and the initial form display.
+
+### Translations
+
+`step.repair` and `abort.repair_*` blocks added to all 29 locale
+files (en + ru real translations; 27 placeholders carry the EN text).
+
 ## [0.51.0-beta.1] — 2026-05-14 — Pairing recovery (PRE-RELEASE)
 
 Pre-release. Must be installed explicitly from HACS by toggling

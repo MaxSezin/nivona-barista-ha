@@ -51,7 +51,8 @@
         "description": "Válasszon beállítási kategóriát",
         "menu_options": {
           "basic": "Alapbeállítások",
-          "advanced": "Speciális beállítások"
+          "advanced": "Speciális beállítások",
+          "repair": "Repair connection"
         }
       },
       "basic": {
@@ -89,7 +90,16 @@
           "recipe_retries": "Újrapróbálkozások száma recept olvasási/írási műveletekhez (alapértelmezett: 3)",
           "initial_connect_delay": "Várakozási idő az első csatlakozási kísérlet előtt a beállítás után (alapértelmezett: 3s)"
         }
+      },
+      "repair": {
+        "title": "Repair BLE pairing",
+        "description": "Recover a wedged pairing without removing the integration. This reloads the ESPHome BLE proxy that owns the scanner for this machine so the next pair attempt starts from a clean cache. Use this when the machine shows a red Bluetooth indicator on its display and brewing fails with timeouts. Press Submit to run the recovery now."
       }
+    },
+    "abort": {
+      "repair_proxy_reloaded": "Reloading the ESPHome BLE proxy now — the integration will reconnect within a minute. If the machine still shows red, share logs on issue #10.",
+      "repair_local_reconnect": "No ESPHome proxy found for this machine — reconnecting via the local Bluetooth adapter instead. The machine should reconnect on the next advertisement.",
+      "repair_failed": "Recovery routine raised an unexpected exception — see Home Assistant logs for details and consider sharing them on issue #10."
     }
   },
   "entity": {
