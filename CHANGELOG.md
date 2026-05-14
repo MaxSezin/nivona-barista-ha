@@ -2,6 +2,46 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.51.0-beta.4] — 2026-05-14 — Force re-pair option + robust proxy matcher
+
+### Added — Options Flow "Force re-pair (hard)"
+
+A second menu entry under Configure that does, in order:
+
+1. Disconnect the Melitta client.
+2. Find the ESPHome proxy ConfigEntry that owns the scanner for this peer.
+3. Call the `esphome.<proxy_name>_clear_ble_bonds` service if it exists
+   (i.e. the user has wired the `clear_ble_bonds` action from
+   `esphome/ble-proxy-xiao-c6.yaml` — beta.3 introduced this).
+4. Reload the proxy ConfigEntry (evicts HA-side cached BLEDevice).
+5. Re-arm the reconnect loop.
+
+5 localised abort outcomes: `full_pair_done`, `full_pair_partial`,
+`full_pair_no_action`, `full_pair_local_only`, `full_pair_failed`.
+
+### Fixed — Proxy-entry matcher kept missing valid proxies
+
+`_find_proxy_entry_for_address` used to compare `scanner.source` only
+against `entry.unique_id`. When the ESPHome entry was added via zeroconf
+discovery (or reconfigured later) the `unique_id` could drift from the
+proxy's actual MAC, and the integration would return None even though
+the ESPHome proxy clearly was advertising the machine. Result: every
+Repair / Force re-pair call fell back to the local-adapter path with the
+"No ESPHome proxy found" abort, even though one existed.
+
+The matcher now compares the (normalised) scanner source against three
+keys per ESPHome entry: `entry.unique_id`,
+`entry.runtime_data.device_info.mac_address`, and
+`entry.runtime_data.device_info.name`. Also logs the source UUID and the
+candidate count at DEBUG so a future mismatch can be diagnosed without
+a code change.
+
+### Tests
+
+5 new tests in `tests/test_pairing_recovery.py` for the Force re-pair
+abort paths (done / partial / no-action / local-only / failed). 759
+total passing.
+
 ## [0.51.0-beta.3] — 2026-05-14 — ESP-side bond clearing recipe
 
 beta.1 and beta.2 reload the ESPHome scanner to evict the **HA-side**

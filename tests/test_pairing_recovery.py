@@ -310,3 +310,104 @@ class TestOptionsRepairStep:
 
         assert result["type"] == "form"
         assert result["step_id"] == "repair"
+
+
+class TestOptionsFullPairStep:
+    """The hard recovery option in Options Flow — wipes ESP bond + reloads."""
+
+    async def test_full_pair_done_when_bond_cleared_and_reloaded(self):
+        from custom_components.melitta_barista.config_flow import MelittaOptionsFlow
+
+        flow = MelittaOptionsFlow(MagicMock(entry_id="abc"))
+        flow.hass = MagicMock()
+
+        with patch(
+            "custom_components.melitta_barista._async_force_repair",
+            new=AsyncMock(return_value={
+                "bond_cleared": True,
+                "proxy_reloaded": True,
+                "service_name": "ble_proxy_x_clear_ble_bonds",
+                "service_missing": False,
+            }),
+        ):
+            result = await flow.async_step_full_pair(user_input={})
+
+        assert result["type"] == "abort"
+        assert result["reason"] == "full_pair_done"
+
+    async def test_full_pair_no_action_when_service_missing(self):
+        from custom_components.melitta_barista.config_flow import MelittaOptionsFlow
+
+        flow = MelittaOptionsFlow(MagicMock(entry_id="abc"))
+        flow.hass = MagicMock()
+
+        with patch(
+            "custom_components.melitta_barista._async_force_repair",
+            new=AsyncMock(return_value={
+                "bond_cleared": False,
+                "proxy_reloaded": True,
+                "service_name": "ble_proxy_x_clear_ble_bonds",
+                "service_missing": True,
+            }),
+        ):
+            result = await flow.async_step_full_pair(user_input={})
+
+        assert result["type"] == "abort"
+        assert result["reason"] == "full_pair_no_action"
+        assert "service" in (result.get("description_placeholders") or {})
+
+    async def test_full_pair_local_only_when_no_proxy(self):
+        from custom_components.melitta_barista.config_flow import MelittaOptionsFlow
+
+        flow = MelittaOptionsFlow(MagicMock(entry_id="abc"))
+        flow.hass = MagicMock()
+
+        with patch(
+            "custom_components.melitta_barista._async_force_repair",
+            new=AsyncMock(return_value={
+                "bond_cleared": False,
+                "proxy_reloaded": False,
+                "service_name": None,
+                "service_missing": False,
+            }),
+        ):
+            result = await flow.async_step_full_pair(user_input={})
+
+        assert result["type"] == "abort"
+        assert result["reason"] == "full_pair_local_only"
+
+    async def test_full_pair_partial_when_reload_only(self):
+        """Proxy reloaded, but clear-bond call failed at runtime (not missing)."""
+        from custom_components.melitta_barista.config_flow import MelittaOptionsFlow
+
+        flow = MelittaOptionsFlow(MagicMock(entry_id="abc"))
+        flow.hass = MagicMock()
+
+        with patch(
+            "custom_components.melitta_barista._async_force_repair",
+            new=AsyncMock(return_value={
+                "bond_cleared": False,
+                "proxy_reloaded": True,
+                "service_name": "ble_proxy_x_clear_ble_bonds",
+                "service_missing": False,
+            }),
+        ):
+            result = await flow.async_step_full_pair(user_input={})
+
+        assert result["type"] == "abort"
+        assert result["reason"] == "full_pair_partial"
+
+    async def test_full_pair_aborts_failed_on_exception(self):
+        from custom_components.melitta_barista.config_flow import MelittaOptionsFlow
+
+        flow = MelittaOptionsFlow(MagicMock(entry_id="abc"))
+        flow.hass = MagicMock()
+
+        with patch(
+            "custom_components.melitta_barista._async_force_repair",
+            new=AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            result = await flow.async_step_full_pair(user_input={})
+
+        assert result["type"] == "abort"
+        assert result["reason"] == "full_pair_failed"

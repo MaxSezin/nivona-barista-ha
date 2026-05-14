@@ -230,12 +230,21 @@ def _find_proxy_entry_for_address(
 ) -> ConfigEntry | None:
     """Locate the ESPHome config entry whose proxy advertised the given peer.
 
-    Walks the BluetoothScannerDevice list for the peer MAC, picks the first
-    scanner whose `source` matches an esphome ConfigEntry's `unique_id`
-    (ESPHome stores the device MAC there). Returns None when running on a
-    local BlueZ adapter or when the address is unknown to HA bluetooth —
-    in both cases there is no proxy entry to reload, so the caller should
-    no-op.
+    Tries three matchers, in order, against every BluetoothScannerDevice
+    HA knows about for `address`:
+
+    1. Normalised string compare on `scanner.source` vs `entry.unique_id`
+       (this is the ESP MAC in the historical / DHCP-discovery path).
+    2. Same normalisation against `entry.runtime_data.device_info.mac_address`
+       (zeroconf-discovery / re-configured entries can drift from
+       unique_id even though their `device_info` is correct).
+    3. Compare against the ESPHome entry's primary device row in the
+       device registry — `dev_reg.async_get_device({(DOMAIN_ESPHOME, mac)})`
+       returns the same device the scanner is registered against, so
+       walking up to its `config_entries` set is a last-resort safety net.
+
+    Returns None when running on a local BlueZ adapter or when nothing
+    matches — both are legitimate "no proxy to reload" cases.
     """
     try:
         scanner_devices = bluetooth.async_scanner_devices_by_address(
@@ -245,20 +254,181 @@ def _find_proxy_entry_for_address(
         _LOGGER.debug("Bluetooth API not available for scanner lookup", exc_info=True)
         return None
 
+    if not scanner_devices:
+        _LOGGER.debug(
+            "find_proxy_entry: no scanners report address %s — "
+            "either it's a local adapter setup or HA bluetooth has not "
+            "seen the device yet",
+            address,
+        )
+        return None
+
     esphome_entries = hass.config_entries.async_entries("esphome")
+    if not esphome_entries:
+        _LOGGER.debug("find_proxy_entry: no esphome ConfigEntries at all")
+        return None
 
     def _norm(s: str | None) -> str:
-        return (s or "").lower().replace(":", "")
+        return (s or "").lower().replace(":", "").replace("-", "")
+
+    # Collect candidate (entry, normalised_keys) pairs once so every scanner
+    # iteration is O(entries) not O(entries * lookups).
+    candidates: list[tuple[ConfigEntry, set[str]]] = []
+    for entry in esphome_entries:
+        keys: set[str] = set()
+        if entry.unique_id:
+            keys.add(_norm(entry.unique_id))
+        runtime = getattr(entry, "runtime_data", None)
+        device_info = getattr(runtime, "device_info", None) if runtime else None
+        mac = getattr(device_info, "mac_address", None) if device_info else None
+        if mac:
+            keys.add(_norm(mac))
+        name = getattr(device_info, "name", None) if device_info else None
+        if name:
+            # Last resort: name match (e.g. scanner source is the device
+            # mDNS name). Lowercased + dash-stripped to match _norm.
+            keys.add(_norm(name))
+        if keys:
+            candidates.append((entry, keys))
 
     for scanner_device in scanner_devices:
-        source = getattr(scanner_device.scanner, "source", None)
+        scanner = scanner_device.scanner
+        source = _norm(getattr(scanner, "source", None))
         if not source:
             continue
-        target = _norm(source)
-        for entry in esphome_entries:
-            if _norm(entry.unique_id) == target:
+        for entry, keys in candidates:
+            if source in keys:
+                _LOGGER.debug(
+                    "find_proxy_entry: matched %s → ESPHome entry %s "
+                    "(scanner.source=%s)",
+                    address, entry.entry_id, scanner.source,
+                )
                 return entry
+        _LOGGER.debug(
+            "find_proxy_entry: scanner source %s did not match any "
+            "ESPHome entry keys (tried %d entries)",
+            scanner.source, len(candidates),
+        )
     return None
+
+
+async def _async_force_repair(
+    hass: HomeAssistant, entry: ConfigEntry,
+) -> dict[str, Any]:
+    """Full re-pair routine — clears BOTH the ESP-side bond and the HA cache.
+
+    Hard recovery for when soft `_async_repair_pairing` doesn't help: the
+    proxy is holding a stale LTK in NVS that the machine refuses, and no
+    amount of scanner-evicting on the HA side fixes that. We need to wipe
+    the ESP bond table for a real fresh-SMP exchange on the next pair=True.
+
+    Sequence:
+
+    1. Disconnect the Melitta client so it doesn't fight us during the reload.
+    2. Find the ESPHome proxy ConfigEntry that owns the scanner for this peer.
+    3. If the proxy ships a user-defined `clear_ble_bonds` action (see
+       `esphome/ble-proxy-xiao-c6.yaml` reference), call the matching HA
+       service so the ESP wipes its NVS bond table.
+    4. Reload the ESPHome proxy entry. That unregisters the scanner (evicts
+       the cached BLEDevice from `_previous_service_info`) and re-establishes
+       the API connection — clean slate on both sides.
+    5. Re-arm the Melitta reconnect loop. Next advertisement triggers a
+       connect from `pair=False` (fails fast because no bond) then escalates
+       to `pair=True`, which now provokes a fresh SMP exchange.
+
+    Returns a result dict with keys:
+        ``bond_cleared`` (bool) — did the ESP service actually run?
+        ``proxy_reloaded`` (bool) — did we reload the proxy ConfigEntry?
+        ``service_name`` (str | None) — the service we tried to call.
+        ``service_missing`` (bool) — True if the action isn't wired in
+            the user's ESPHome YAML; the abort message tells them how.
+    """
+    result: dict[str, Any] = {
+        "bond_cleared": False,
+        "proxy_reloaded": False,
+        "service_name": None,
+        "service_missing": False,
+    }
+
+    client: MelittaBleClient | None = getattr(entry, "runtime_data", None)
+    if client is None:
+        _LOGGER.warning("force_repair: no runtime_data on entry %s", entry.entry_id)
+        return result
+
+    # Step 1 — quiesce our own client so the reload doesn't race with us.
+    try:
+        await client.disconnect()
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("force_repair: disconnect failed", exc_info=True)
+
+    proxy_entry = _find_proxy_entry_for_address(hass, client.address)
+    if proxy_entry is None:
+        _LOGGER.info(
+            "force_repair: no ESPHome proxy entry for %s — falling back to "
+            "a local disconnect; the reconnect loop will pick up the next "
+            "advertisement.",
+            client.address,
+        )
+        client._auto_reconnect = True  # noqa: SLF001
+        client._reconnect_event.set()  # noqa: SLF001
+        if not client._reconnect_task or client._reconnect_task.done():  # noqa: SLF001
+            client._schedule_reconnect()  # noqa: SLF001
+        return result
+
+    # Step 2 — build the esphome service name from the proxy device name
+    # (ESPHome registers user actions as `esphome.<device-with-dashes-as-underscores>_<action>`).
+    device_name: str | None = None
+    runtime_data = getattr(proxy_entry, "runtime_data", None)
+    if runtime_data is not None:
+        device_info = getattr(runtime_data, "device_info", None)
+        if device_info is not None:
+            device_name = getattr(device_info, "name", None)
+
+    if device_name:
+        service_name = f"{device_name.replace('-', '_')}_clear_ble_bonds"
+        result["service_name"] = service_name
+        if hass.services.has_service("esphome", service_name):
+            _LOGGER.warning(
+                "force_repair: calling esphome.%s to wipe NVS bond table on %s",
+                service_name, device_name,
+            )
+            try:
+                await hass.services.async_call(
+                    "esphome", service_name, {}, blocking=True,
+                )
+                result["bond_cleared"] = True
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception(
+                    "force_repair: esphome.%s call raised", service_name,
+                )
+        else:
+            _LOGGER.warning(
+                "force_repair: esphome.%s is not registered. Add the "
+                "`clear_ble_bonds` action to your ESPHome YAML (see "
+                "esphome/ble-proxy-xiao-c6.yaml in the repo) and flash to "
+                "make this service available.",
+                service_name,
+            )
+            result["service_missing"] = True
+
+    # Step 3 — reload the proxy entry. Even if bond clearing wasn't done,
+    # this evicts the cached BLEDevice and gives the next pair attempt a
+    # fresh source/address_type pair.
+    hass.async_create_task(
+        hass.config_entries.async_reload(proxy_entry.entry_id),
+        name=f"melitta_barista_force_repair_{client.address}",
+    )
+    result["proxy_reloaded"] = True
+
+    # Step 4 — re-arm our own reconnect loop. The reload will tear down
+    # _async_update_ble briefly, then re-register on setup; the next
+    # advertisement will hit `_reconnect_event.set()` and we'll connect.
+    client._auto_reconnect = True  # noqa: SLF001
+    client._reconnect_event.set()  # noqa: SLF001
+    if not client._reconnect_task or client._reconnect_task.done():  # noqa: SLF001
+        client._schedule_reconnect()  # noqa: SLF001
+
+    return result
 
 
 async def _async_repair_pairing(

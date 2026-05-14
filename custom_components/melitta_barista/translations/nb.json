@@ -52,7 +52,8 @@
         "menu_options": {
           "basic": "Grunninnstillinger",
           "advanced": "Avanserte innstillinger",
-          "repair": "Repair connection"
+          "repair": "Repair connection (soft)",
+          "full_pair": "Force re-pair (hard)"
         }
       },
       "basic": {
@@ -93,13 +94,22 @@
       },
       "repair": {
         "title": "Repair BLE pairing",
-        "description": "Recover a wedged pairing without removing the integration. This reloads the ESPHome BLE proxy that owns the scanner for this machine so the next pair attempt starts from a clean cache. Use this when the machine shows a red Bluetooth indicator on its display and brewing fails with timeouts. Press Submit to run the recovery now."
+        "description": "Soft recovery: reloads the ESPHome BLE proxy that owns the scanner for this machine so the next pair attempt starts from a clean cache. Use this first. If brewing still fails afterwards, try Force re-pair (hard) — that one also wipes the bond key on the ESP."
+      },
+      "full_pair": {
+        "title": "Force full re-pair",
+        "description": "Hard recovery: wipes the bond table on the ESPHome BLE proxy AND reloads the proxy entry, forcing a fresh SMP exchange on the next connection. Use this only when soft Repair connection didn't fix the wedge (red Bluetooth indicator on the machine display). Requires the `clear_ble_bonds` action in your ESPHome proxy YAML (see esphome/ble-proxy-xiao-c6.yaml in the integration repo). Press Submit to run."
       }
     },
     "abort": {
       "repair_proxy_reloaded": "Reloading the ESPHome BLE proxy now — the integration will reconnect within a minute. If the machine still shows red, share logs on issue #10.",
       "repair_local_reconnect": "No ESPHome proxy found for this machine — reconnecting via the local Bluetooth adapter instead. The machine should reconnect on the next advertisement.",
-      "repair_failed": "Recovery routine raised an unexpected exception — see Home Assistant logs for details and consider sharing them on issue #10."
+      "repair_failed": "Recovery routine raised an unexpected exception — see Home Assistant logs for details and consider sharing them on issue #10.",
+      "full_pair_done": "Wiped the bond table on the ESP proxy AND reloaded the proxy entry. The next BLE connect will run a fresh SMP exchange, and the machine should create a new bond from scratch. Expect the Bluetooth indicator to turn blue within a minute.",
+      "full_pair_partial": "Reloaded the ESPHome proxy entry, but bond clearing failed — see HA logs. Try again, or share logs on issue #10.",
+      "full_pair_no_action": "ESPHome service `esphome.{service}` is not registered, so we can't wipe the bond table. Add the `clear_ble_bonds` action to your ESPHome YAML (template at esphome/ble-proxy-xiao-c6.yaml in the integration repo), flash the proxy, and retry. We did reload the proxy entry, which evicts HA-side cache — try Soft Repair connection meanwhile.",
+      "full_pair_local_only": "No ESPHome proxy found for this machine — running on a local Bluetooth adapter. Full re-pair isn't applicable here; doing a local disconnect+reconnect instead.",
+      "full_pair_failed": "Force re-pair routine raised an unexpected exception — see Home Assistant logs and share them on issue #10."
     }
   },
   "entity": {

@@ -419,7 +419,49 @@ class MelittaOptionsFlow(OptionsFlow):
         """Show options menu."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["basic", "advanced", "repair"],
+            menu_options=["basic", "advanced", "repair", "full_pair"],
+        )
+
+    async def async_step_full_pair(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Hard pairing recovery — wipe ESP bond table AND reload proxy.
+
+        Use this when soft "Repair connection" doesn't recover the
+        wedge — the proxy is holding a stale LTK that the machine
+        refuses, and only a fresh SMP exchange will accept it.
+
+        Requires the `clear_ble_bonds` action wired in the user's
+        ESPHome YAML (see esphome/ble-proxy-xiao-c6.yaml in the repo).
+        Without it we still do the soft path and show an instructive
+        message telling the user to add the action.
+        """
+        if user_input is not None:
+            from . import _async_force_repair  # noqa: PLC0415
+
+            try:
+                result = await _async_force_repair(self.hass, self._config_entry)
+            except Exception:
+                _LOGGER.exception("Manual full_pair failed")
+                return self.async_abort(reason="full_pair_failed")
+
+            if not result["proxy_reloaded"]:
+                # No proxy found — local-adapter fallback.
+                return self.async_abort(reason="full_pair_local_only")
+            if result["service_missing"]:
+                return self.async_abort(
+                    reason="full_pair_no_action",
+                    description_placeholders={
+                        "service": result["service_name"] or "unknown",
+                    },
+                )
+            if result["bond_cleared"]:
+                return self.async_abort(reason="full_pair_done")
+            return self.async_abort(reason="full_pair_partial")
+
+        return self.async_show_form(
+            step_id="full_pair",
+            data_schema=vol.Schema({}),
         )
 
     async def async_step_repair(
