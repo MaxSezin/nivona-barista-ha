@@ -956,10 +956,14 @@ async def ws_profiles_add(
 ) -> None:
     """Add a new profile."""
     db = await _async_get_db(hass)
-    profile = await db.async_add_profile(
-        name=msg["name"],
-        preferences=msg.get("preferences", {}),
-    )
+    # async_add_profile accepts a single `data` dict shaped like a profile
+    # row (name, cup_size, dietary, caffeine_pref, …). Earlier we passed
+    # name=…, preferences=… as kwargs — that signature didn't exist and
+    # the call raised TypeError, plus the nested `preferences` mapping
+    # was silently dropped on the way to the DB.
+    data: dict[str, Any] = {"name": msg["name"]}
+    data.update(msg.get("preferences", {}))
+    profile = await db.async_add_profile(data)
     connection.send_result(msg["id"], {"profile": profile})
 
 
