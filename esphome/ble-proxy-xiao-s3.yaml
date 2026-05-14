@@ -142,6 +142,16 @@ logger:
 # (vs 3 on single-core C3/C6).
 # See: https://esphome.io/components/bluetooth_proxy/
 # ---------------------------------------------------------------
+# Raise the BLE controller's per-link slot pool. The default is 3,
+# which leaves only 2 free for proxy connection slots after the
+# tracker / scanner reserves one. With `connection_slots: 4` below
+# (S3 dual-core + 8MB PSRAM can handle 4), we need max_connections=5
+# so the scanner has its reserved slot. Without this the compiler
+# warns: "BLE components require N connection slot(s) but only 3
+# configured".
+esp32_ble:
+  max_connections: 5
+
 esp32_ble_tracker:
   scan_parameters:
     active: true        # Active scan for full device names

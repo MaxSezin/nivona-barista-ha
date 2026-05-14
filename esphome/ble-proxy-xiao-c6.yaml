@@ -142,6 +142,17 @@ logger:
 # Use defaults and on-demand scanning for stable operation.
 # See: https://esphome.io/components/bluetooth_proxy/
 # ---------------------------------------------------------------
+# Raise the BLE controller's per-link slot pool. The default is 3,
+# which leaves only 2 free for proxy connection slots after the
+# tracker / scanner reserves one. bluetooth_proxy + esp32_ble_tracker
+# together register 4 components on the parent esp32_ble bus, so the
+# compiler warns:
+#   "BLE components require 4 connection slot(s) but only 3 configured"
+# Bumping max_connections to 4 silences the warning and matches the
+# `connection_slots: 3` below (one slot reserved for the scanner).
+esp32_ble:
+  max_connections: 4
+
 esp32_ble_tracker:
   scan_parameters:
     # Use ESPHome defaults (interval=320ms, window=30ms).
