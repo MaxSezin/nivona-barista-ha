@@ -74,6 +74,23 @@ VALID_MILK_TYPES = [
 ]
 VALID_MODES = ["surprise_me", "custom"]
 VALID_EXTRAS_CATEGORIES = ["syrups", "toppings", "liqueurs"]
+
+# User-writable keys for the shared `settings` table. The same table also
+# stores `schema_version` (managed by the DB migration code) and is checked
+# on every startup; if it were overwritten with garbage from a WS caller,
+# future migrations would either skip or re-run incorrectly. The allowlist
+# below is therefore not a UX gate — it is a hard schema guarantee.
+VALID_SETTING_KEYS = ["llm_agent_id"]
+
+# User-writable keys for the `user_preferences` table. There is no current
+# WS caller, but the endpoint exists; restrict it the same way to prevent
+# a future caller from polluting the table with arbitrary keys.
+VALID_PREFERENCE_KEYS = [
+    "default_cup_size",
+    "default_temperature",
+    "default_caffeine",
+    "default_dietary",
+]
 VALID_CUP_SIZES = ["espresso_cup", "cup", "mug", "tall_glass", "travel"]
 VALID_MOODS = ["energizing", "relaxing", "dessert", "classic"]
 VALID_OCCASIONS = ["morning", "after_lunch", "guests", "romantic", "work"]
@@ -172,6 +189,7 @@ async def ws_beans_list(
         **BEAN_SCHEMA,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_beans_add(
     hass: HomeAssistant,
@@ -210,6 +228,7 @@ async def ws_beans_add(
         vol.Optional("preset_id"): cv.string,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_beans_update(
     hass: HomeAssistant,
@@ -240,6 +259,7 @@ async def ws_beans_update(
         vol.Required("bean_id"): cv.string,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_beans_delete(
     hass: HomeAssistant,
@@ -279,6 +299,7 @@ async def ws_hoppers_get(
         vol.Optional("bean_id"): vol.Any(cv.string, None),
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_hoppers_assign(
     hass: HomeAssistant,
@@ -320,6 +341,7 @@ async def ws_milk_get(
         ),
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_milk_set(
     hass: HomeAssistant,
@@ -362,6 +384,7 @@ async def ws_milk_set(
         vol.Optional("allow_milk"): [cv.string],
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_generate(
     hass: HomeAssistant,
@@ -522,9 +545,11 @@ async def ws_generate(
             ctx=connection.context(msg),
             prebuilt_prompt=prebuilt_prompt,
         )
-    except Exception as err:  # noqa: BLE001
-        _LOGGER.error("Failed to generate recipes: %s", err)
-        connection.send_error(msg["id"], "generation_failed", str(err))
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Failed to generate recipes")
+        connection.send_error(
+            msg["id"], "generation_failed", "Recipe generation failed; see HA logs"
+        )
         return
 
     parsed = sc_result.get("parsed") or {}
@@ -571,6 +596,7 @@ async def ws_generate(
         vol.Required("recipe_id"): cv.string,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_brew(
     hass: HomeAssistant,
@@ -594,9 +620,11 @@ async def ws_brew(
             client, recipe["name"], recipe["blend"],
             recipe["component1"], recipe["component2"],
         )
-    except Exception as err:
-        _LOGGER.error("Failed to brew recipe: %s", err)
-        connection.send_error(msg["id"], "brew_failed", str(err))
+    except Exception:
+        _LOGGER.exception("Failed to brew recipe")
+        connection.send_error(
+            msg["id"], "brew_failed", "Brewing failed; see HA logs"
+        )
         return
 
     await db.async_mark_recipe_brewed(msg["recipe_id"])
@@ -626,6 +654,7 @@ async def ws_favorites_list(
         vol.Required("recipe_id"): cv.string,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_favorites_add(
     hass: HomeAssistant,
@@ -650,6 +679,9 @@ async def ws_favorites_add(
         "blend": recipe["blend"],
         "component1": recipe["component1"],
         "component2": recipe["component2"],
+        "extras": recipe.get("extras"),
+        "steps": recipe.get("steps"),
+        "cup_type": recipe.get("cup_type"),
         "source_recipe_id": recipe["id"],
         "source_bean_id": source_bean["id"] if source_bean else None,
     })
@@ -662,6 +694,7 @@ async def ws_favorites_add(
         vol.Required("favorite_id"): cv.string,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_favorites_remove(
     hass: HomeAssistant,
@@ -683,6 +716,7 @@ async def ws_favorites_remove(
         vol.Required("favorite_id"): cv.string,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_favorites_brew(
     hass: HomeAssistant,
@@ -706,9 +740,11 @@ async def ws_favorites_brew(
             client, fav["name"], fav["blend"],
             fav["component1"], fav["component2"],
         )
-    except Exception as err:
-        _LOGGER.error("Failed to brew favorite: %s", err)
-        connection.send_error(msg["id"], "brew_failed", str(err))
+    except Exception:
+        _LOGGER.exception("Failed to brew favorite")
+        connection.send_error(
+            msg["id"], "brew_failed", "Brewing favorite failed; see HA logs"
+        )
         return
 
     await db.async_increment_favorite_brew(msg["favorite_id"])
@@ -767,9 +803,11 @@ async def ws_presets_list(
     if _PRESETS_CACHE is None:
         try:
             _PRESETS_CACHE = await hass.async_add_executor_job(_load_presets_sync)
-        except Exception as err:
-            _LOGGER.error("Failed to load presets: %s", err)
-            connection.send_error(msg["id"], "load_failed", str(err))
+        except Exception:
+            _LOGGER.exception("Failed to load presets")
+            connection.send_error(
+                msg["id"], "load_failed", "Preset list failed to load"
+            )
             return
     connection.send_result(msg["id"], {"presets": _PRESETS_CACHE})
 
@@ -794,10 +832,11 @@ async def ws_settings_get(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "melitta_barista/sommelier/settings/set",
-        vol.Required("key"): cv.string,
+        vol.Required("key"): vol.In(VALID_SETTING_KEYS),
         vol.Required("value"): cv.string,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_settings_set(
     hass: HomeAssistant,
@@ -834,6 +873,7 @@ async def ws_extras_get(
         vol.Required("items"): vol.All(cv.ensure_list, [cv.string]),
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_extras_set(
     hass: HomeAssistant,
@@ -866,10 +906,11 @@ async def ws_preferences_get(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "melitta_barista/sommelier/preferences/set",
-        vol.Required("key"): cv.string,
+        vol.Required("key"): vol.In(VALID_PREFERENCE_KEYS),
         vol.Required("value"): cv.string,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_preferences_set(
     hass: HomeAssistant,
@@ -906,6 +947,7 @@ async def ws_profiles_list(
         vol.Optional("preferences", default={}): dict,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_profiles_add(
     hass: HomeAssistant,
@@ -914,10 +956,14 @@ async def ws_profiles_add(
 ) -> None:
     """Add a new profile."""
     db = await _async_get_db(hass)
-    profile = await db.async_add_profile(
-        name=msg["name"],
-        preferences=msg.get("preferences", {}),
-    )
+    # async_add_profile accepts a single `data` dict shaped like a profile
+    # row (name, cup_size, dietary, caffeine_pref, …). Earlier we passed
+    # name=…, preferences=… as kwargs — that signature didn't exist and
+    # the call raised TypeError, plus the nested `preferences` mapping
+    # was silently dropped on the way to the DB.
+    data: dict[str, Any] = {"name": msg["name"]}
+    data.update(msg.get("preferences", {}))
+    profile = await db.async_add_profile(data)
     connection.send_result(msg["id"], {"profile": profile})
 
 
@@ -929,6 +975,7 @@ async def ws_profiles_add(
         vol.Optional("preferences"): dict,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_profiles_update(
     hass: HomeAssistant,
@@ -957,6 +1004,7 @@ async def ws_profiles_update(
         vol.Required("profile_id"): cv.string,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_profiles_delete(
     hass: HomeAssistant,
@@ -978,6 +1026,7 @@ async def ws_profiles_delete(
         vol.Required("profile_id"): cv.string,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_profiles_activate(
     hass: HomeAssistant,
@@ -986,7 +1035,7 @@ async def ws_profiles_activate(
 ) -> None:
     """Activate a profile (deactivates others)."""
     db = await _async_get_db(hass)
-    activated = await db.async_activate_profile(msg["profile_id"])
+    activated = await db.async_set_active_profile(msg["profile_id"])
     if not activated:
         connection.send_error(msg["id"], "not_found", "Profile not found")
         return

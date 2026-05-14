@@ -27,20 +27,6 @@ PORTION_MIN = 5
 PORTION_MAX = 250
 PORTION_STEP = 5
 
-# ── Valid extras ────────────────────────────────────────────────────────
-
-VALID_SYRUPS = {
-    "vanilla", "caramel", "hazelnut", "chocolate", "maple",
-    "lavender", "pumpkin_spice", "coconut", "almond", "peppermint",
-}
-VALID_TOPPINGS = {
-    "cinnamon_powder", "whipped_cream", "cocoa_powder", "nutmeg",
-    "chocolate_shavings", "marshmallow", "caramel_drizzle",
-}
-VALID_LIQUEURS = {
-    "baileys", "kahlua", "amaretto", "frangelico", "grand_marnier",
-}
-
 CUP_SIZE_VOLUMES: dict[str, tuple[int, int]] = {
     "espresso_cup": (60, 90),
     "cup": (150, 200),
@@ -478,29 +464,20 @@ def _validate_extras(raw_extras: Any) -> dict[str, Any] | None:
 
     ice = bool(raw_extras.get("ice", False))
 
-    syrup = raw_extras.get("syrup")
-    if isinstance(syrup, str):
-        syrup = syrup.lower()
-        if syrup not in VALID_SYRUPS:
-            syrup = None
-    else:
-        syrup = None
+    # Free-form strings: the LLM is told which extras the user actually
+    # configured (under Add-ins) in the prompt, and Pydantic accepts any
+    # string for these fields. The old allowlist below silently dropped
+    # any user-configured syrup/topping/liqueur the LLM correctly used,
+    # because VALID_* is a small hardcoded English set.
+    def _clean(v: Any) -> str | None:
+        if not isinstance(v, str):
+            return None
+        cleaned = v.strip().lower()
+        return cleaned[:64] if cleaned else None
 
-    topping = raw_extras.get("topping")
-    if isinstance(topping, str):
-        topping = topping.lower()
-        if topping not in VALID_TOPPINGS:
-            topping = None
-    else:
-        topping = None
-
-    liqueur = raw_extras.get("liqueur")
-    if isinstance(liqueur, str):
-        liqueur = liqueur.lower()
-        if liqueur not in VALID_LIQUEURS:
-            liqueur = None
-    else:
-        liqueur = None
+    syrup = _clean(raw_extras.get("syrup"))
+    topping = _clean(raw_extras.get("topping"))
+    liqueur = _clean(raw_extras.get("liqueur"))
 
     instruction = raw_extras.get("instruction")
     if not isinstance(instruction, str) or not instruction.strip():

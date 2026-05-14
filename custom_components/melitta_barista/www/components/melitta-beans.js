@@ -18,6 +18,21 @@ import { t } from "../i18n.js";
 
 const ROASTS = ["light", "medium", "medium_dark", "dark"];
 const BEAN_TYPES = ["arabica", "arabica_robusta", "robusta"];
+
+/**
+ * Return the input URL only if it parses as an http(s) URL.
+ * Blocks `javascript:`, `data:`, and other XSS-capable schemes from
+ * reaching an `<a href>` rendered with user-stored data.
+ */
+function safeHttpUrl(url) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") ? url : null;
+  } catch {
+    return null;
+  }
+}
 const ORIGINS = ["single_origin", "blend"];
 
 class MelittaBeans extends LitElement {
@@ -152,7 +167,7 @@ class MelittaBeans extends LitElement {
   }
 
   async _deleteProducer(id) {
-    if (!confirm("Delete?")) return;
+    if (!confirm(this._t("common.delete_confirm"))) return;
     try {
       await this.hass.callWS({
         type: "melitta_barista/producers/delete",
@@ -224,7 +239,7 @@ class MelittaBeans extends LitElement {
   }
 
   async _deleteBean(id) {
-    if (!confirm("Delete?")) return;
+    if (!confirm(this._t("common.delete_confirm"))) return;
     try {
       await this.hass.callWS({
         type: "melitta_barista/sommelier/beans/delete",
@@ -282,7 +297,7 @@ class MelittaBeans extends LitElement {
         // see it AND edit it. Skips the append if the recommendation is
         // already present (idempotent on re-autofill).
         if (parsed.brewing_recommendation) {
-          const note = `Заваривание: ${parsed.brewing_recommendation}`;
+          const note = `${this._t("beans.brewing_label")}: ${parsed.brewing_recommendation}`;
           if (!(merged.composition || "").includes(parsed.brewing_recommendation)) {
             merged.composition = merged.composition
               ? `${merged.composition}\n${note}`
@@ -411,7 +426,12 @@ class MelittaBeans extends LitElement {
           ${this._producers.map((p) => html`
             <tr>
               <td>${p.name}</td>
-              <td>${p.country || ""}${p.website ? html` · <a href=${p.website} target="_blank">site</a>` : ""}</td>
+              <td>${p.country || ""}${(() => {
+                const safe = safeHttpUrl(p.website);
+                return safe
+                  ? html` · <a href=${safe} target="_blank" rel="noopener noreferrer">site</a>`
+                  : "";
+              })()}</td>
               <td class="actions">
                 <button class="icon edit" @click=${() => this._openEditProducer(p)}>✎</button>
                 <button class="icon del" @click=${() => this._deleteProducer(p.id)}>×</button>

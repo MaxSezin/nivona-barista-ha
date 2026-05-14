@@ -2,6 +2,172 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.50.1] — 2026-05-14 — Code review: critical security + crash fixes
+
+Closes the full Critical list, all Important findings (including
+the BLE test gaps and the i18n / enum-ID rendering), and the
+Minor pack from the v0.50.0 code review. 740 tests passing
+(was 721).
+
+### Security / authorization
+
+- Admin guard on every mutating WebSocket command in panel_api.py and
+  sommelier_api.py (31 handlers in total) plus sensitive reads
+  (diagnostics, diagnostics/llm_calls, prompts/list, prompts/preview).
+  `require_admin=True` on the panel registration only hides the
+  sidebar entry — without these guards, any authenticated household
+  user could change the system prompt template, the LLM agent
+  setting, or physically start a brew via `sommelier/brew`.
+- `safeHttpUrl()` for the producer website link in melitta-beans.js so
+  a `javascript:`-scheme URL stored in the producers table cannot
+  execute when the row is rendered. `rel="noopener noreferrer"`
+  added on the `target="_blank"` link.
+- Allowlist for `sommelier/settings/set` and `sommelier/preferences/set`
+  keys via `vol.In(...)`. Previously a caller could overwrite the
+  shared `settings.schema_version` row and break future migrations.
+- WS error responses now log full exception traces server-side and
+  return a static message to the panel — SQLite paths and
+  conversation-integration error text no longer leak via WS errors
+  for /producers/add, /beans/autofill, /sommelier/generate,
+  /sommelier/brew, /sommelier/favorites/brew, /sommelier/presets/list.
+
+### Correctness
+
+- `sommelier/profiles/activate` no longer crashes. The handler called
+  `db.async_activate_profile()` which never existed; renamed to the
+  actual `async_set_active_profile()`. The DB method now returns
+  `bool` so the not-found path is reported correctly to the panel.
+- `ws_profiles_add`: the old code called the DB method with kwargs
+  `name=..., preferences=...` that the method never accepted — every
+  add-profile call raised TypeError. The handler now builds a single
+  data dict so the DB row + the nested preferences both land in
+  storage.
+- Schema migration: SCHEMA_VERSION 2 → 3 with a new MIGRATE_V2_TO_V3
+  block that adds a `steps TEXT` column to `generated_recipes` and
+  `favorites`. The headline new feature of 0.50.0 — numbered
+  preparation steps with dosages — used to be dropped on reload and
+  on brew-from-favorite. Migration runner now applies each version
+  step in sequence instead of a hardcoded v1→v2 jump.
+- `ws_favorites_add` forwards `extras`, `steps`, and `cup_type` from
+  the source recipe (they used to be dropped).
+- `_find_client` resolves through entity registry's
+  `config_entry_id` instead of substring-matching the BLE address
+  into the entity unique_id — eliminates a multi-machine false
+  match path.
+- `async_unload_entry` removes all six services (`brew_freestyle`,
+  `brew_directkey`, `save_directkey`, `reset_recipe`,
+  `confirm_prompt`, `nivona_write_recipe_param`,
+  `nivona_write_mycoffee_param`) on last-entry removal so they
+  don't leak in HA's service registry until restart. Gated on
+  `unload_ok` so we don't tear down shared state while platform
+  entities are still live.
+- `MelittaTotalCupsSensor.available` now gates on the connection
+  state. It used to return `True` forever after the first read,
+  masking BLE drops from automations.
+- `services.yaml`: `enabled` and `icon` added to the
+  `nivona_write_recipe_param` param_key selector (the voluptuous
+  schema already accepted them).
+- `config_flow`: explicit WARNING before the BleakScanner.discover
+  fallback so ESPHome-proxy-only setups can see why discovery
+  returned empty results.
+- `_auto_confirm_task` is now tracked with a done callback so any
+  unexpected exception surfaces in HA logs instead of being
+  swallowed by asyncio's "task exception was never retrieved".
+
+### Frontend i18n + a11y
+
+- `melitta-sommelier.js`: every user-visible label, toast, and
+  diagnostics message now resolves through `_t()` (was a mix of
+  hardcoded Russian and English). Constraints block, Add-ins
+  section, favorite toast, machine-line label, Why?-summary, plus
+  the 26 enum values for cup-size / mood / occasion / temperature /
+  caffeine / dietary preferences. en + ru keys added.
+- `melitta-beans.js`: the autofill-brewing-recommendation note that
+  gets appended into the bean composition field goes through
+  `_t(beans.brewing_label)` — earlier it wrote literal
+  "Заваривание: …" into the row regardless of locale.
+- `melitta-additives.js` / `melitta-beans.js`: `confirm("Delete?")`
+  now uses a localized prompt.
+- `melitta-modal.js`: bind `aria-labelledby` on the dialog role to
+  the `<h3>` id so screen readers announce the modal title.
+- `melitta-diagnostics.js`: null out `this._timer` after
+  `clearInterval`, same pattern as melitta-status.js.
+
+### Tests / tooling
+
+- `tests/test_review_fixes.py` — regression coverage for steps
+  round-trip, `async_set_active_profile` return contract, settings
+  / preferences allowlist schemas, `safeHttpUrl` text contract,
+  and the service-removal block in __init__.py.
+- `tests/test_protocol_full.py` — split-BLE-notification parser
+  tests (frame cut mid-payload + byte-by-byte feed).
+- `tests/test_ble_client.py` — `_auto_confirm_task` error-path
+  coverage (BleakError caught; unexpected exception routed to the
+  done-callback).
+- `pyproject.toml` — pytest `timeout = 10` default per the project
+  memory rule.
+
+### Internals
+
+- Removed dead `_CRC_TABLE` / `_compute_handshake_crc` from
+  protocol.py; live code routes through `MelittaProfile.hu_verifier`.
+- `_BleClientProtocol` typing stub now declares `_brand`,
+  `_capabilities`, `_profile_callbacks`,
+  `_recipe_refresh_callbacks`, and `record_error` so mypy sees the
+  full mixin contract.
+- `ai_recipes._validate_extras` drops the hardcoded English
+  VALID_SYRUPS / VALID_TOPPINGS / VALID_LIQUEURS allowlists — the
+  LLM is informed of the user's actual extras via the prompt and
+  Pydantic accepts any string. Kept normalisation (strip, lowercase,
+  64-char cap).
+- Docstrings added on the 13 WS handlers in panel_api.py that were
+  missing them.
+
+### Known limitations carried over
+
+- WS handlers' end-to-end coverage with a full HA harness is still
+  out of scope; the new regression tests target DB invariants and
+  text contracts of the critical fixes.
+- Some recipe metadata (`estimated_caffeine`, badges) still
+  formats English-only on the recipe card.
+
+## [0.50.0] — 2026-04-27 — Admin SPA panel + AI Coffee Sommelier (alpha)
+
+### Fixed
+
+- **`sommelier/profiles/activate` no longer crashes.** Handler called
+  `db.async_activate_profile()` which never existed; renamed to the actual
+  `async_set_active_profile()`. The DB method now returns `bool` so the
+  not-found path surfaces correctly to the panel.
+- **Admin guard on all mutating WebSocket commands.** `require_admin=True`
+  on the panel registration only hides the sidebar; the WS endpoints
+  themselves had no authorization check, so any authenticated household
+  user could change prompt templates, modify the LLM agent setting, or
+  physically start a brew via `sommelier/brew`. Added
+  `@websocket_api.require_admin` to all CRUD endpoints (producers, beans,
+  syrups, toppings, tags, prompts, milk, hoppers, favorites, history
+  config, profiles, sommelier preferences/extras/settings, generate,
+  brew, autofill) plus sensitive read endpoints (diagnostics,
+  diagnostics/llm_calls, prompts/list, prompts/preview). Read-only data
+  endpoints (status, list, get) remain open.
+- **`javascript:` URI XSS on producer website link.** Producer rows
+  rendered `<a href=${p.website} target="_blank">` with a user-stored
+  value. A `javascript:` website would execute in the HA frontend
+  origin (with access to the WS token). Added `safeHttpUrl()` that
+  only returns the URL if it parses as http/https, plus
+  `rel="noopener noreferrer"` on the link.
+- **Services no longer leak after the last entry is removed.** Six
+  services (`brew_freestyle`, `brew_directkey`, `save_directkey`,
+  `reset_recipe`, `confirm_prompt`, `nivona_write_recipe_param`,
+  `nivona_write_mycoffee_param`) were registered with a
+  `has_service` guard but never deregistered; when the last config
+  entry was removed they stayed in HA's service registry until restart
+  and would report `device_not_found` on every call.
+- **Domain-wide teardown now gated on `unload_ok`.** Panel
+  unregistration, Sommelier DB close, and service removal are now
+  only executed when the platform unload actually succeeded — they
+  used to run unconditionally even if entities were still live.
+
 ## [0.50.0] — 2026-04-27 — Admin SPA panel + AI Coffee Sommelier (alpha)
 
 Big release. The integration now ships an in-HA admin panel with a full

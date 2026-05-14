@@ -130,7 +130,7 @@ class MelittaAdditives extends LitElement {
   }
 
   async _delete(type, id) {
-    if (!confirm("Delete?")) return;
+    if (!confirm(this._t("common.delete_confirm"))) return;
     try {
       if (type === "milk") {
         await this.hass.callWS({

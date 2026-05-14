@@ -1118,6 +1118,52 @@ class TestAutoConfirmPrompts:
 
         client._protocol.confirm_prompt.assert_not_awaited()
 
+    async def test_bleak_error_logged_not_raised(self):
+        """A BleakError from confirm_prompt is caught and logged so the
+        auto-confirm path doesn't propagate into asyncio's
+        "Task exception was never retrieved" warning."""
+        from custom_components.melitta_barista.const import Manipulation
+        from custom_components.melitta_barista.protocol import MachineStatus
+        client = self._client_with_status(Manipulation.NONE, auto=True)
+        client._protocol.confirm_prompt = AsyncMock(side_effect=BleakError("nope"))
+
+        client._on_status(MachineStatus(manipulation=Manipulation.MOVE_CUP_TO_FROTHER))
+        # Yield enough to let the task finish and the done-callback fire.
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        # Method itself caught and logged the error — no exception escapes.
+        client._protocol.confirm_prompt.assert_awaited_once()
+
+    async def test_unexpected_exception_routed_to_done_callback(self):
+        """Non-BLE exceptions (e.g. AttributeError from a refactor that broke
+        confirm_prompt) used to be swallowed by asyncio's task-never-retrieved
+        machinery. The done-callback now logs them at ERROR so a regression is
+        actually visible.
+        """
+        from custom_components.melitta_barista.const import Manipulation
+
+        client = self._client_with_status(Manipulation.NONE, auto=True)
+        manip = Manipulation.MOVE_CUP_TO_FROTHER
+
+        # Use a side-effect that raises an unexpected exception type — the
+        # method's own except clause only handles BleakError/OSError/Timeout,
+        # so this should land in the done-callback.
+        with patch.object(
+            client, "confirm_prompt", AsyncMock(side_effect=RuntimeError("boom"))
+        ):
+            task = asyncio.create_task(client._auto_confirm_task(manip))
+            task.add_done_callback(client._on_auto_confirm_done)
+            # Wait for task to finish — should not raise from the caller's POV.
+            try:
+                await asyncio.wait_for(task, timeout=1.0)
+            except RuntimeError:
+                pass
+
+        # done() is True; exception() returns the RuntimeError (sanity).
+        assert task.done()
+        assert isinstance(task.exception(), RuntimeError)
+
 
 # ---------------------------------------------------------------------------
 # disconnect (lines 392-410)

@@ -1,2 +1,6 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Per-test timeout (seconds). A BLE wait that never fires, an aiosqlite
+# operation against a stale conn, or a hung asyncio.Event can otherwise
+# wedge CI indefinitely. Override per-test with @pytest.mark.timeout(N).
+timeout = 10

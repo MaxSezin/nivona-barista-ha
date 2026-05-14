@@ -182,6 +182,57 @@ class TestFrameParsing:
         # Should not raise
         proto.on_ble_data(frame)
 
+    def test_frame_split_across_notifications(self):
+        """BLE MTU is 20 bytes; frames > 20 bytes ALWAYS arrive in multiple
+        notifications. The parser accumulates into _recv_buffer across calls
+        and must reassemble correctly.
+        """
+        proto = MelittaProtocol()
+        proto._rc4_key = None
+
+        statuses = []
+        proto.set_status_callback(lambda s: statuses.append(s))
+
+        payload = struct.pack(">hhBBh", MachineProcess.READY, 0, 0, 0, 0)
+        frame = bytes([FRAME_START]) + b"HX" + payload
+        cs = 0
+        for b in frame[1:]:
+            cs = (cs + b) & 0xFF
+        frame += bytes([(~cs) & 0xFF, FRAME_END])
+
+        # Split mid-payload to mimic real BLE delivery
+        split = len(frame) // 2
+        proto.on_ble_data(frame[:split])
+        assert statuses == []  # frame is still partial
+        proto.on_ble_data(frame[split:])
+
+        assert len(statuses) == 1
+        assert statuses[0].process == MachineProcess.READY
+
+    def test_frame_split_byte_by_byte(self):
+        """Adversarial case: every byte arrives in its own notification.
+        Exercises the FRAME_START reset, intermediate accumulation, and
+        FRAME_END dispatch on a single byte feed.
+        """
+        proto = MelittaProtocol()
+        proto._rc4_key = None
+
+        statuses = []
+        proto.set_status_callback(lambda s: statuses.append(s))
+
+        payload = struct.pack(">hhBBh", MachineProcess.READY, 0, 0, 0, 0)
+        frame = bytes([FRAME_START]) + b"HX" + payload
+        cs = 0
+        for b in frame[1:]:
+            cs = (cs + b) & 0xFF
+        frame += bytes([(~cs) & 0xFF, FRAME_END])
+
+        for byte in frame:
+            proto.on_ble_data(bytes([byte]))
+
+        assert len(statuses) == 1
+        assert statuses[0].process == MachineProcess.READY
+
 
 class TestHandshake:
     """Test HU handshake flow."""
