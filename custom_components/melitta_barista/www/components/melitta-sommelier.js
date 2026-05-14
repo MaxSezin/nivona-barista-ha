@@ -267,7 +267,7 @@ class MelittaSommelier extends LitElement {
             <select .value=${this._cupSize}
               @change=${(e) => { this._cupSize = e.target.value; }}>
               ${CUP_SIZES.map((c) => html`
-                <option value=${c} ?selected=${c === this._cupSize}>${c}</option>
+                <option value=${c} ?selected=${c === this._cupSize}>${this._t(`sommelier.cup.${c}`)}</option>
               `)}
             </select>
           </div>
@@ -277,7 +277,7 @@ class MelittaSommelier extends LitElement {
             <div class="chips">
               ${MOODS.map((m) => html`
                 <button class=${this._moods.includes(m) ? "chip on" : "chip"}
-                  @click=${() => this._toggle("_moods", m)}>${m}</button>
+                  @click=${() => this._toggle("_moods", m)}>${this._t(`sommelier.mood.${m}`)}</button>
               `)}
             </div>
           </div>
@@ -288,7 +288,7 @@ class MelittaSommelier extends LitElement {
               @change=${(e) => { this._occasion = e.target.value; }}>
               <option value="" ?selected=${!this._occasion}>—</option>
               ${OCCASIONS.map((o) => html`
-                <option value=${o} ?selected=${o === this._occasion}>${o}</option>
+                <option value=${o} ?selected=${o === this._occasion}>${this._t(`sommelier.occasion.${o}`)}</option>
               `)}
             </select>
           </div>
@@ -298,7 +298,7 @@ class MelittaSommelier extends LitElement {
             <div class="chips">
               ${TEMPERATURES.map((t_) => html`
                 <button class=${this._temperature === t_ ? "chip on" : "chip"}
-                  @click=${() => { this._temperature = t_; }}>${t_}</button>
+                  @click=${() => { this._temperature = t_; }}>${this._t(`sommelier.temp.${t_}`)}</button>
               `)}
             </div>
           </div>
@@ -308,7 +308,7 @@ class MelittaSommelier extends LitElement {
             <select .value=${this._caffeine}
               @change=${(e) => { this._caffeine = e.target.value; }}>
               ${CAFFEINE_PREFS.map((c) => html`
-                <option value=${c} ?selected=${c === this._caffeine}>${c}</option>
+                <option value=${c} ?selected=${c === this._caffeine}>${this._t(`sommelier.caffeine.${c}`)}</option>
               `)}
             </select>
           </div>
@@ -318,7 +318,7 @@ class MelittaSommelier extends LitElement {
             <div class="chips">
               ${DIETARY.map((d) => html`
                 <button class=${this._dietary.includes(d) ? "chip on" : "chip"}
-                  @click=${() => this._toggle("_dietary", d)}>${d}</button>
+                  @click=${() => this._toggle("_dietary", d)}>${this._t(`sommelier.diet.${d}`)}</button>
               `)}
             </div>
           </div>

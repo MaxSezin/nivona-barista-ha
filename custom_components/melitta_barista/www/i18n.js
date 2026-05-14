@@ -28,6 +28,7 @@ const STRINGS = {
     "common.save": "Save",
     "common.cancel": "Cancel",
     "common.delete": "Delete",
+    "common.delete_confirm": "Delete this item?",
     "common.add": "Add",
     "common.edit": "Edit",
     "common.refresh": "Refresh",
@@ -152,6 +153,36 @@ const STRINGS = {
     "sommelier.favorite_failed": "Failed to add to favorites",
     "sommelier.addins_load_failed": "Failed to load add-ins",
 
+    "sommelier.cup.espresso_cup": "Espresso cup",
+    "sommelier.cup.cup": "Cup",
+    "sommelier.cup.mug": "Mug",
+    "sommelier.cup.tall_glass": "Tall glass",
+    "sommelier.cup.travel": "Travel mug",
+
+    "sommelier.mood.energizing": "Energizing",
+    "sommelier.mood.relaxing": "Relaxing",
+    "sommelier.mood.dessert": "Dessert",
+    "sommelier.mood.classic": "Classic",
+
+    "sommelier.occasion.morning": "Morning",
+    "sommelier.occasion.after_lunch": "After lunch",
+    "sommelier.occasion.guests": "Guests",
+    "sommelier.occasion.romantic": "Romantic",
+    "sommelier.occasion.work": "Work",
+
+    "sommelier.temp.auto": "Auto",
+    "sommelier.temp.hot": "Hot",
+    "sommelier.temp.iced": "Iced",
+
+    "sommelier.caffeine.regular": "Regular",
+    "sommelier.caffeine.low": "Low",
+    "sommelier.caffeine.decaf_evening": "Decaf (evening)",
+
+    "sommelier.diet.no_sugar": "No sugar",
+    "sommelier.diet.lactose_free": "Lactose-free",
+    "sommelier.diet.low_calorie": "Low calorie",
+    "sommelier.diet.vegan": "Vegan",
+
     "modal.add_bean": "Add bean",
     "modal.edit_bean": "Edit bean",
     "modal.add_producer": "Add producer",
@@ -225,6 +256,7 @@ const STRINGS = {
     "common.save": "Сохранить",
     "common.cancel": "Отмена",
     "common.delete": "Удалить",
+    "common.delete_confirm": "Удалить эту запись?",
     "common.add": "Добавить",
     "common.edit": "Изменить",
     "common.refresh": "Обновить",
@@ -348,6 +380,36 @@ const STRINGS = {
     "sommelier.fav_add": "Добавить в избранное",
     "sommelier.favorite_failed": "Не удалось добавить в избранное",
     "sommelier.addins_load_failed": "Не удалось загрузить добавки",
+
+    "sommelier.cup.espresso_cup": "Эспрессо-чашка",
+    "sommelier.cup.cup": "Чашка",
+    "sommelier.cup.mug": "Кружка",
+    "sommelier.cup.tall_glass": "Высокий стакан",
+    "sommelier.cup.travel": "Термокружка",
+
+    "sommelier.mood.energizing": "Бодрящее",
+    "sommelier.mood.relaxing": "Расслабляющее",
+    "sommelier.mood.dessert": "Десертное",
+    "sommelier.mood.classic": "Классическое",
+
+    "sommelier.occasion.morning": "Утро",
+    "sommelier.occasion.after_lunch": "После обеда",
+    "sommelier.occasion.guests": "Гости",
+    "sommelier.occasion.romantic": "Романтическое",
+    "sommelier.occasion.work": "Работа",
+
+    "sommelier.temp.auto": "Авто",
+    "sommelier.temp.hot": "Горячий",
+    "sommelier.temp.iced": "Холодный",
+
+    "sommelier.caffeine.regular": "Обычный",
+    "sommelier.caffeine.low": "Низкий",
+    "sommelier.caffeine.decaf_evening": "Без кофеина (вечер)",
+
+    "sommelier.diet.no_sugar": "Без сахара",
+    "sommelier.diet.lactose_free": "Без лактозы",
+    "sommelier.diet.low_calorie": "Низкокалорийное",
+    "sommelier.diet.vegan": "Веганское",
 
     "modal.add_bean": "Добавить сорт",
     "modal.edit_bean": "Редактировать сорт",

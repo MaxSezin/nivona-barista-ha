@@ -367,6 +367,7 @@ def _now_iso() -> str:
 @websocket_api.websocket_command({vol.Required("type"): "melitta_barista/producers/list"})
 @websocket_api.async_response
 async def _ws_producers_list(hass, connection, msg):
+    """Return the list of coffee producers (name, country, website, notes)."""
     db = await _async_get_db(hass)
     cursor = await db._db.execute(
         "SELECT id, name, country, website, notes FROM producers ORDER BY name"
@@ -390,6 +391,7 @@ async def _ws_producers_list(hass, connection, msg):
 @websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_producers_add(hass, connection, msg):
+    """Insert a producer row and return its new id."""
     db = await _async_get_db(hass)
     try:
         cursor = await db._db.execute(
@@ -418,6 +420,7 @@ async def _ws_producers_add(hass, connection, msg):
 @websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_producers_update(hass, connection, msg):
+    """Patch the writable producer fields (name, country, website, notes)."""
     db = await _async_get_db(hass)
     fields = {k: msg[k] for k in ("name", "country", "website", "notes") if k in msg}
     if not fields:
@@ -439,6 +442,7 @@ async def _ws_producers_update(hass, connection, msg):
 @websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_producers_delete(hass, connection, msg):
+    """Remove a producer row by `producer_id`."""
     db = await _async_get_db(hass)
     await db._db.execute("DELETE FROM producers WHERE id = ?", (msg["producer_id"],))
     await db._db.commit()
@@ -681,6 +685,7 @@ def _make_additive_handlers(table: str):
     })
     @websocket_api.async_response
     async def _ws_list(hass, connection, msg):
+        """List rows from an additive table (syrups / toppings)."""
         db = await _async_get_db(hass)
         cursor = await db._db.execute(
             f"SELECT id, name, brand, notes FROM {table} ORDER BY name"
@@ -702,6 +707,7 @@ def _make_additive_handlers(table: str):
     @websocket_api.require_admin
     @websocket_api.async_response
     async def _ws_add(hass, connection, msg):
+        """Insert a row into an additive table; returns new id."""
         db = await _async_get_db(hass)
         cursor = await db._db.execute(
             f"INSERT INTO {table} (name, brand, notes, created_at) VALUES (?, ?, ?, ?)",
@@ -718,6 +724,7 @@ def _make_additive_handlers(table: str):
     @websocket_api.require_admin
     @websocket_api.async_response
     async def _ws_delete(hass, connection, msg):
+        """Delete an additive row by `additive_id`."""
         db = await _async_get_db(hass)
         await db._db.execute(f"DELETE FROM {table} WHERE id = ?", (msg["additive_id"],))
         await db._db.commit()
@@ -744,6 +751,7 @@ def _make_additive_update_handler(table: str):
     @websocket_api.require_admin
     @websocket_api.async_response
     async def _ws_update(hass, connection, msg):
+        """Patch the writable additive fields (name, brand, notes)."""
         db = await _async_get_db(hass)
         fields = {k: msg[k] for k in ("name", "brand", "notes") if k in msg}
         if not fields:
@@ -799,6 +807,7 @@ async def _ws_tags_list(hass, connection, msg):
 @websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_tags_add(hass, connection, msg):
+    """Upsert a flavor tag so it shows up in the bean tag chip list."""
     name = msg["name"].strip()
     if not name:
         connection.send_error(msg["id"], "empty", "Tag name is empty")
@@ -819,6 +828,7 @@ async def _ws_tags_add(hass, connection, msg):
 @websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_tags_delete(hass, connection, msg):
+    """Remove an explicit flavor tag (beans referencing it keep the tag string)."""
     db = await _async_get_db(hass)
     await db._db.execute("DELETE FROM flavor_tags WHERE name = ?", (msg["name"],))
     await db._db.commit()
@@ -1074,6 +1084,7 @@ def _try_smartchain_structured():
 @websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_prompts_list(hass, connection, msg):
+    """Return every prompt slot with its default, current override, and schema."""
     db = await _async_get_db(hass)
     cursor = await db._db.execute("SELECT slot, template FROM panel_prompts")
     overrides = {row[0]: row[1] for row in await cursor.fetchall()}
@@ -1100,6 +1111,7 @@ async def _ws_prompts_list(hass, connection, msg):
 @websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_prompts_save(hass, connection, msg):
+    """Persist a user override for a prompt slot (rejects unknown slot ids)."""
     if msg["slot"] not in DEFAULT_PROMPTS:
         connection.send_error(msg["id"], "unknown_slot", f"Unknown prompt {msg['slot']}")
         return
@@ -1203,6 +1215,7 @@ async def _ws_prompts_preview(hass, connection, msg):
 @websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_prompts_reset(hass, connection, msg):
+    """Drop a slot override so the bundled default takes over again."""
     db = await _async_get_db(hass)
     await db._db.execute("DELETE FROM panel_prompts WHERE slot = ?", (msg["slot"],))
     await db._db.commit()

@@ -167,7 +167,7 @@ class MelittaBeans extends LitElement {
   }
 
   async _deleteProducer(id) {
-    if (!confirm("Delete?")) return;
+    if (!confirm(this._t("common.delete_confirm"))) return;
     try {
       await this.hass.callWS({
         type: "melitta_barista/producers/delete",
@@ -239,7 +239,7 @@ class MelittaBeans extends LitElement {
   }
 
   async _deleteBean(id) {
-    if (!confirm("Delete?")) return;
+    if (!confirm(this._t("common.delete_confirm"))) return;
     try {
       await this.hass.callWS({
         type: "melitta_barista/sommelier/beans/delete",
