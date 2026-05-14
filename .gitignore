@@ -39,3 +39,6 @@ CLAUDE.md
 # MkDocs build output
 /site/
 .cache/
+
+# ESPHome secrets — NEVER commit. secrets.yaml.example is tracked as a template.
+esphome/secrets.yaml
