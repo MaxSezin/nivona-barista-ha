@@ -2,6 +2,33 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.51.0-beta.7] — 2026-05-14 — Pairing-mode requirement documented
+
+Real-device beta.6 testing surfaced the remaining piece: Melitta
+firmware **requires the machine to be in explicit pairing mode**
+(menu-activated) before it accepts SMP from a new BLE central. Even
+with the ESP completely clean (no bond, no stuck slot, fresh BLEDevice
+cache), the machine answers every SMP exchange with `auth fail
+reason=82` until you put it into pairing mode via its UI. After a
+single successful pair the bond persists on both sides — pairing
+mode is not needed for subsequent reconnects.
+
+This isn't a code bug, but the integration was silent about it.
+beta.7 surfaces the requirement in every recovery message and in the
+repair issue's UI.
+
+### Changed
+
+- `repair`, `full_pair`, and the issue `pairing_wedged` descriptions
+  now spell out the pairing-mode step (en + ru, plus the other 27
+  locales carrying the en text as placeholder).
+- `full_pair_done` abort text now says "IMPORTANT: now put the
+  machine into pairing mode within 1 minute" so the user knows the
+  next move.
+- `pairing_wedged` issue body lists the full 3-step recovery:
+  pairing mode on the machine → call repair_connection → bond
+  persists, done.
+
 ## [0.51.0-beta.6] — 2026-05-14 — Surgical GAP disconnect on stuck slot
 
 Production log on beta.5 showed `auth fail reason=82` (SMP rejection

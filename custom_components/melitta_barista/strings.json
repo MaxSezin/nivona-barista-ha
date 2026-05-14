@@ -6,7 +6,7 @@
     },
     "pairing_wedged": {
       "title": "BLE pairing recovery triggered",
-      "description": "The pairing with the coffee machine ({address}) appeared wedged (the machine kept rejecting our handshake — typically shown as a red Bluetooth indicator on the machine display). The integration automatically reloaded the ESPHome BLE proxy to clear a stale cached BLEDevice; this normally resolves the issue within a minute. If brewing still fails, call the `melitta_barista.repair_connection` service manually, or share logs on issue #10."
+      "description": "The pairing with the coffee machine ({address}) appeared wedged (the machine kept rejecting our handshake — typically shown as a red Bluetooth indicator on the machine display). The integration automatically reloaded the ESPHome BLE proxy to clear a stale cached BLEDevice.\n\nIf brewing still fails after a minute, the bond is wedged on the MACHINE side too. To fix:\n\n1. Open the machine menu → Bluetooth → Pair new device (path may say App-Verbindung / Connect / Reset connection depending on firmware).\n2. While the machine is in pairing mode, call `melitta_barista.repair_connection` (or use Settings → Devices & Services → Melitta → Configure → Force re-pair).\n3. The machine creates a fresh bond; subsequent reconnects won't need pairing mode again.\n\nIf this keeps happening on every reconnect, share logs on issue #10."
     }
   },
   "exceptions": {
@@ -91,11 +91,11 @@
       },
       "repair": {
         "title": "Repair BLE pairing",
-        "description": "Soft recovery: reloads the ESPHome BLE proxy that owns the scanner for this machine so the next pair attempt starts from a clean cache. Use this first. If brewing still fails afterwards, try Force re-pair (hard) — that one also wipes the bond key on the ESP."
+        "description": "Soft recovery: reloads the ESPHome BLE proxy that owns the scanner for this machine so the next pair attempt starts from a clean cache. Use this first. If brewing still fails afterwards, try Force re-pair (hard) — that one also wipes the bond key on the ESP, AND requires you to put the machine into pairing mode."
       },
       "full_pair": {
         "title": "Force full re-pair",
-        "description": "Hard recovery: wipes the bond table on the ESPHome BLE proxy AND reloads the proxy entry, forcing a fresh SMP exchange on the next connection. Use this only when soft Repair connection didn't fix the wedge (red Bluetooth indicator on the machine display). Requires the `clear_ble_bonds` action in your ESPHome proxy YAML (see esphome/ble-proxy-xiao-c6.yaml in the integration repo). Press Submit to run."
+        "description": "Hard recovery: wipes the bond table on the ESPHome BLE proxy, disconnects the stuck slot, and reloads the proxy entry, forcing a fresh SMP exchange.\n\nBEFORE pressing Submit: put the machine into pairing mode via its menu (Menu → Bluetooth → Pair new device / App-Verbindung — exact path depends on firmware). Without pairing mode the machine will reject the fresh SMP request with `auth fail reason=82`.\n\nRequires the `clear_ble_bonds` and `disconnect_ble_peer` actions in your ESPHome proxy YAML (see esphome/ble-proxy-xiao-c6.yaml in the integration repo)."
       },
       "basic": {
         "title": "Basic Settings",
@@ -135,10 +135,10 @@
       }
     },
     "abort": {
-      "repair_proxy_reloaded": "Reloading the ESPHome BLE proxy now — the integration will reconnect within a minute. If the machine still shows red, share logs on issue #10.",
+      "repair_proxy_reloaded": "Reloading the ESPHome BLE proxy now — the integration will reconnect within a minute. If you see `auth fail reason=82` in ESP logs afterwards, the bond is wedged on both sides: try Force re-pair (hard), AND put the machine into pairing mode (Menu → Bluetooth → Pair new device) so it accepts a fresh SMP exchange.",
       "repair_local_reconnect": "No ESPHome proxy found for this machine — reconnecting via the local Bluetooth adapter instead. The machine should reconnect on the next advertisement.",
       "repair_failed": "Recovery routine raised an unexpected exception — see Home Assistant logs for details and consider sharing them on issue #10.",
-      "full_pair_done": "Wiped the bond table on the ESP proxy AND reloaded the proxy entry. The next BLE connect will run a fresh SMP exchange, and the machine should create a new bond from scratch. Expect the Bluetooth indicator to turn blue within a minute.",
+      "full_pair_done": "Wiped the bond table on the ESP proxy AND reloaded the proxy entry. IMPORTANT: now put the machine into pairing mode (Menu → Bluetooth → Pair new device / App-Verbindung — exact path depends on firmware) within 1 minute. The integration will run a fresh SMP exchange and create a new bond. Subsequent reconnects won't need pairing mode again.",
       "full_pair_partial": "Reloaded the ESPHome proxy entry, but bond clearing failed — see HA logs. Try again, or share logs on issue #10.",
       "full_pair_no_action": "ESPHome service `esphome.{service}` is not registered, so we can't wipe the bond table. Add the `clear_ble_bonds` action to your ESPHome YAML (template at esphome/ble-proxy-xiao-c6.yaml in the integration repo), flash the proxy, and retry. We did reload the proxy entry, which evicts HA-side cache — try Soft Repair connection meanwhile.",
       "full_pair_local_only": "No ESPHome proxy found for this machine — running on a local Bluetooth adapter. Full re-pair isn't applicable here; doing a local disconnect+reconnect instead.",
