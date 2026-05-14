@@ -225,6 +225,101 @@ def _async_register_sommelier(hass: HomeAssistant) -> None:
         )
 
 
+def _find_proxy_entry_for_address(
+    hass: HomeAssistant, address: str,
+) -> ConfigEntry | None:
+    """Locate the ESPHome config entry whose proxy advertised the given peer.
+
+    Walks the BluetoothScannerDevice list for the peer MAC, picks the first
+    scanner whose `source` matches an esphome ConfigEntry's `unique_id`
+    (ESPHome stores the device MAC there). Returns None when running on a
+    local BlueZ adapter or when the address is unknown to HA bluetooth —
+    in both cases there is no proxy entry to reload, so the caller should
+    no-op.
+    """
+    try:
+        scanner_devices = bluetooth.async_scanner_devices_by_address(
+            hass, address, connectable=True,
+        )
+    except Exception:  # noqa: BLE001 — defensive: bluetooth API may not be ready
+        _LOGGER.debug("Bluetooth API not available for scanner lookup", exc_info=True)
+        return None
+
+    esphome_entries = hass.config_entries.async_entries("esphome")
+
+    def _norm(s: str | None) -> str:
+        return (s or "").lower().replace(":", "")
+
+    for scanner_device in scanner_devices:
+        source = getattr(scanner_device.scanner, "source", None)
+        if not source:
+            continue
+        target = _norm(source)
+        for entry in esphome_entries:
+            if _norm(entry.unique_id) == target:
+                return entry
+    return None
+
+
+async def _async_repair_pairing(
+    hass: HomeAssistant, entry: ConfigEntry,
+) -> bool:
+    """Recover a wedged pairing by reloading the ESPHome BLE proxy entry.
+
+    Root cause of the wedge (see docs/PAIRING.md or issue #10): habluetooth
+    caches a BLEDevice instance per peer address with a frozen
+    `details["source"]` / `details["address_type"]`. After long BLE silence
+    the cached source can point at a dead scanner UUID, or the address_type
+    can drift after the machine resets its bond — and every reconnect
+    handed that stale device. Reloading the ESPHome entry unregisters the
+    scanner, which evicts the cached BLEDevice; the next advertisement
+    rebuilds it with fresh details.
+
+    Returns True if a proxy entry was found and a reload was scheduled;
+    False if there is no proxy entry (local BlueZ adapter) — in that case
+    the caller should fall back to disconnect+reconnect.
+    """
+    client: MelittaBleClient | None = getattr(entry, "runtime_data", None)
+    if client is None:
+        _LOGGER.warning("repair_pairing: no runtime_data on entry %s", entry.entry_id)
+        return False
+
+    proxy_entry = _find_proxy_entry_for_address(hass, client.address)
+    if proxy_entry is None:
+        _LOGGER.info(
+            "repair_pairing: no ESPHome proxy entry found for %s — "
+            "doing a local disconnect+reconnect instead",
+            client.address,
+        )
+        # Local adapter path: a plain disconnect (clearing _paired etc.) and
+        # letting the reconnect loop wake up on the next advertisement is
+        # the cheapest recovery we have.
+        try:
+            await client.disconnect()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("disconnect during repair failed", exc_info=True)
+        # disconnect() sets _auto_reconnect=False; re-arm so the reconnect
+        # loop can take over once an advertisement arrives.
+        client._auto_reconnect = True  # noqa: SLF001
+        client._reconnect_event.set()  # noqa: SLF001
+        if not client._reconnect_task or client._reconnect_task.done():  # noqa: SLF001
+            client._schedule_reconnect()  # noqa: SLF001
+        return False
+
+    _LOGGER.warning(
+        "repair_pairing: reloading ESPHome proxy %s to evict stale BLEDevice for %s",
+        proxy_entry.title or proxy_entry.entry_id, client.address,
+    )
+    # Run the reload as a background task so we don't block whichever
+    # context invoked us (reconnect loop, service call, etc.). HA's
+    # async_reload itself is safe to call from any event-loop context.
+    hass.async_create_task(
+        hass.config_entries.async_reload(proxy_entry.entry_id),
+        name=f"melitta_barista_repair_{client.address}",
+    )
+    return True
+
+
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate config entries forward.
 
@@ -321,6 +416,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.runtime_data = client
 
+    # Wire the recovery callback so the reconnect loop can reload the
+    # ESPHome proxy entry after N consecutive failed connect()s. The
+    # threshold itself lives on the client (configurable via Options).
+    pairing_issue_id = f"pairing_wedged_{address}"
+
+    def _trigger_repair() -> None:
+        # Surface a Repair card so the user knows we hit the wedge even if
+        # the auto-recovery (proxy reload) succeeds — gives them a chance
+        # to flag the issue / share logs.
+        ir.async_create_issue(
+            hass, DOMAIN, pairing_issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="pairing_wedged",
+            translation_placeholders={"address": address},
+            learn_more_url=(
+                "https://github.com/dzerik/melitta-barista-ha/issues/10"
+            ),
+        )
+        hass.async_create_task(
+            _async_repair_pairing(hass, entry),
+            name=f"melitta_barista_repair_trigger_{address}",
+        )
+
+    client.set_repair_callback(_trigger_repair)
+    entry.async_on_unload(lambda: client.set_repair_callback(None))
+
     # Track disconnects for repair issue (connection instability warning)
     disconnect_times: list[float] = []
     max_disconnects_per_hour = 5
@@ -329,8 +451,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     @callback
     def _track_connection(connected: bool) -> None:
         if connected:
-            # Clear repair issue on successful reconnect
+            # Clear repair issues on successful reconnect — both the
+            # disconnect-storm warning and the stuck-pairing warning.
             ir.async_delete_issue(hass, DOMAIN, issue_id)
+            ir.async_delete_issue(hass, DOMAIN, pairing_issue_id)
             return
         disconnect_times.append(time.monotonic())
         # Keep only last hour
@@ -477,6 +601,7 @@ SERVICE_RESET_RECIPE = "reset_recipe"
 SERVICE_CONFIRM_PROMPT = "confirm_prompt"
 SERVICE_WRITE_RECIPE_PARAM = "nivona_write_recipe_param"
 SERVICE_WRITE_MYCOFFEE_PARAM = "nivona_write_mycoffee_param"
+SERVICE_REPAIR_CONNECTION = "repair_connection"
 
 _NIVONA_PARAM_KEYS = [
     "strength", "profile", "two_cups", "temperature",
@@ -817,6 +942,34 @@ def _async_register_services(hass: HomeAssistant) -> None:
         schema=NIVONA_WRITE_MYCOFFEE_PARAM_SCHEMA,
     )
 
+    async def _handle_repair_connection(call: ServiceCall) -> None:
+        """Manual recovery for a wedged pairing.
+
+        Walks every melitta_barista config entry and triggers the repair
+        routine (reload the ESPHome proxy entry that owns the peer).
+        Lightweight: at most one ESPHome reload per unique proxy entry,
+        even if several Melitta machines share the same proxy.
+        """
+        reloaded: set[str] = set()
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            client: MelittaBleClient | None = getattr(entry, "runtime_data", None)
+            if client is None:
+                continue
+            proxy_entry = _find_proxy_entry_for_address(hass, client.address)
+            if proxy_entry and proxy_entry.entry_id in reloaded:
+                _LOGGER.info(
+                    "repair_connection: proxy %s already scheduled for reload",
+                    proxy_entry.entry_id,
+                )
+                continue
+            triggered = await _async_repair_pairing(hass, entry)
+            if proxy_entry is not None and triggered:
+                reloaded.add(proxy_entry.entry_id)
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_REPAIR_CONNECTION, _handle_repair_connection,
+    )
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
@@ -850,6 +1003,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 SERVICE_CONFIRM_PROMPT,
                 SERVICE_WRITE_RECIPE_PARAM,
                 SERVICE_WRITE_MYCOFFEE_PARAM,
+                SERVICE_REPAIR_CONNECTION,
             ):
                 if hass.services.has_service(DOMAIN, service):
                     hass.services.async_remove(DOMAIN, service)

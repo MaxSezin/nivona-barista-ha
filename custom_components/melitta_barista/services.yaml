@@ -519,3 +519,17 @@ nivona_write_mycoffee_param:
           min: 0
           max: 32767
           step: 1
+
+repair_connection:
+  name: Repair pairing
+  description: >
+    Recover a wedged BLE pairing without removing the integration. After a
+    long quiet period the ESPHome BLE proxy may end up caching a stale
+    BLEDevice (frozen source UUID or address type), at which point all
+    subsequent reconnect attempts fail with "HU handshake timeout" or "60s
+    BluetoothDevicePairingResponse timeout" and the machine display shows
+    a red Bluetooth indicator. This service reloads the ESPHome proxy
+    config entry that owns the scanner, which evicts the cached device;
+    the next advertisement rebuilds it with fresh details and the very
+    next pair=True attempt succeeds. Equivalent to the old workaround of
+    deleting and re-adding the integration, but preserves entity history.

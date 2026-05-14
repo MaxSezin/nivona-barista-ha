@@ -13,7 +13,7 @@ import asyncio
 import logging
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Callable
+from typing import Any, TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -34,10 +34,12 @@ from .const import (
     DEFAULT_BLE_CONNECT_TIMEOUT,
     DEFAULT_FRAME_TIMEOUT,
     DEFAULT_MAX_CONSECUTIVE_ERRORS,
+    DEFAULT_PAIR_SETTLE_DELAY,
     DEFAULT_POLL_INTERVAL,
     DEFAULT_RECIPE_RETRIES,
     DEFAULT_RECONNECT_DELAY,
     DEFAULT_RECONNECT_MAX_DELAY,
+    DEFAULT_REPAIR_AFTER_FAILURES,
     FeatureFlags,
     MACHINE_MODEL_NAMES,
     MACHINE_TYPE_SETTING_ID,
@@ -106,6 +108,8 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
         reconnect_delay: float = DEFAULT_RECONNECT_DELAY,
         reconnect_max_delay: float = DEFAULT_RECONNECT_MAX_DELAY,
         recipe_retries: int = DEFAULT_RECIPE_RETRIES,
+        pair_settle_delay: float = DEFAULT_PAIR_SETTLE_DELAY,
+        repair_after_failures: int = DEFAULT_REPAIR_AFTER_FAILURES,
         auto_confirm_prompts: bool = False,
         brand: "BrandProfile | None" = None,
         family_override: str | None = None,
@@ -128,6 +132,17 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
         self._reconnect_delay = reconnect_delay
         self._reconnect_max_delay = reconnect_max_delay
         self._recipe_retries = recipe_retries
+        self._pair_settle_delay = pair_settle_delay
+        self._repair_after_failures = repair_after_failures
+        # Counts consecutive failed connect() calls — used by the reconnect
+        # loop to trigger a one-shot pairing recovery (ESPHome entry reload)
+        # after too many failures in a row. Reset on every successful connect.
+        self._consecutive_connect_failures: int = 0
+        # Callback set by __init__.py during entry setup; invoked by the
+        # reconnect loop when _consecutive_connect_failures hits the
+        # threshold. Wires the integration's recovery routine without
+        # giving ble_client.py a hass / config_entries dependency.
+        self._repair_callback: Callable[[], Any] | None = None
         self._connected = False
         self._connect_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
@@ -233,6 +248,20 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
         self._auto_confirm_prompts = bool(value)
         if not value:
             self._last_auto_confirmed = Manipulation.NONE
+
+    def set_repair_callback(self, callback: Callable[[], Any] | None) -> None:
+        """Install the recovery routine the reconnect loop calls on wedge.
+
+        Wired in __init__.py:async_setup_entry to a closure that reloads the
+        ESPHome config entry owning the proxy. Callback may be a coroutine
+        function or a plain callable; coroutines are scheduled as a task.
+        """
+        self._repair_callback = callback
+
+    @property
+    def consecutive_connect_failures(self) -> int:
+        """How many connect() calls in a row have failed since last success."""
+        return self._consecutive_connect_failures
 
     @property
     def machine_type(self) -> MachineType | None:
@@ -701,6 +730,19 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
             if await self._try_connect_and_handshake(pair=False):
                 self._paired = True
             else:
+                # Settle delay: let the ESP proxy / BlueZ release the previous
+                # connection slot before we initiate a fresh pair=True. Without
+                # this gap we routinely hit a 60 s
+                # `TimeoutAPIError waiting for BluetoothDevicePairingResponse`
+                # because the proxy is still holding the BLE socket from the
+                # pair=False attempt that just collapsed.
+                if self._pair_settle_delay > 0:
+                    _LOGGER.debug(
+                        "Settling for %.1fs before retrying with pair=True",
+                        self._pair_settle_delay,
+                    )
+                    await asyncio.sleep(self._pair_settle_delay)
+
                 # Attempt 2: with pairing (create new bond)
                 _LOGGER.info(
                     "Retrying connection to %s with pairing", self._address,
@@ -708,6 +750,10 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
                 if not await self._try_connect_and_handshake(pair=True):
                     # Attempt 3: unpair stale bond, then pair fresh
                     await self._try_unpair()
+                    # Same settle delay between unpair-flush and the final
+                    # pair=True attempt, for the same reason as above.
+                    if self._pair_settle_delay > 0:
+                        await asyncio.sleep(self._pair_settle_delay)
                     _LOGGER.info(
                         "Retrying connection to %s after unpair", self._address,
                     )
@@ -718,6 +764,9 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
 
             self._connected = True
             self._last_handshake_at = time.time()
+            # Connect succeeded — reset the failure counter so the next outage
+            # gets a fresh threshold instead of immediately triggering repair.
+            self._consecutive_connect_failures = 0
             _LOGGER.info("Connected and handshake complete for %s", self._address)
 
             # Read firmware version
@@ -804,6 +853,12 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
 
         The loop can be woken up early by setting _reconnect_event (e.g. when
         a BLE advertisement arrives, indicating the machine is back online).
+
+        After ``_repair_after_failures`` consecutive failed connect() calls
+        we invoke ``_repair_callback`` (installed by the integration setup)
+        which reloads the ESPHome BLE proxy entry. That eviction is the only
+        way to drop the scanner's cached BLEDevice — see docs/PAIRING.md.
+        Counter resets on the next successful connect.
         """
         delay = self._reconnect_delay
         while self._auto_reconnect and not self.connected:
@@ -817,8 +872,10 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
                 pass
             if not self._auto_reconnect:
                 break
+            connect_ok = False
             try:
-                if await self.connect():
+                connect_ok = await self.connect()
+                if connect_ok:
                     _LOGGER.info("Reconnected to %s", self._address)
                     self.start_polling(interval=self._poll_interval)
                     return
@@ -826,6 +883,35 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
                 _LOGGER.debug("Reconnect attempt failed", exc_info=True)
             except Exception:
                 _LOGGER.exception("Unexpected error during reconnect")
+            if not connect_ok:
+                self._consecutive_connect_failures += 1
+                _LOGGER.debug(
+                    "Reconnect failure %d/%d",
+                    self._consecutive_connect_failures,
+                    self._repair_after_failures,
+                )
+                if (
+                    self._repair_after_failures > 0
+                    and self._consecutive_connect_failures
+                    >= self._repair_after_failures
+                    and self._repair_callback is not None
+                ):
+                    # Fire-and-forget: the callback owns its own task lifetime
+                    # (it reloads the ESPHome entry, which can take seconds).
+                    # Zero the counter so we don't keep re-triggering while
+                    # the proxy is busy reloading.
+                    _LOGGER.warning(
+                        "Pairing wedged after %d failed connects to %s — "
+                        "triggering recovery",
+                        self._consecutive_connect_failures, self._address,
+                    )
+                    self._consecutive_connect_failures = 0
+                    try:
+                        result = self._repair_callback()
+                        if asyncio.iscoroutine(result):
+                            asyncio.create_task(result)
+                    except Exception:
+                        _LOGGER.exception("Repair callback raised")
             delay = min(delay * 2, self._reconnect_max_delay)
 
     async def disconnect(self) -> None:
@@ -841,6 +927,11 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
         client = self._client
         self._client = None
         self._connected = False
+        # Hygiene: drop the bond-tracking flag so the next connect starts
+        # from a clean assumption. _connect_impl always begins with pair=False
+        # then escalates, so this doesn't actually skip steps — but it keeps
+        # the field accurate for future logic and for diagnostics.
+        self._paired = False
         if client:
             try:
                 if client.is_connected:
