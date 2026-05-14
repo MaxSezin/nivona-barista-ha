@@ -2,6 +2,23 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.50.2] — 2026-05-14 — hassfest validation fixes
+
+Closes the three findings raised by the nightly `validate-hassfest`
+CI job (these were broken before 0.50.1 — the audit didn't surface
+them because the agents reviewed source, not CI logs).
+
+### Fixed
+
+- **`strings.json` + 29 translation files**: removed the top-level
+  `"brand": {melitta, nivona}` block. HA's translations schema does
+  not allow a top-level `brand` key, so every nightly hassfest run
+  was failing. The block was dead code anyway — no
+  `translation_key="brand"` lookup exists in the integration.
+- **`manifest.json`**: declared `http` in `dependencies` since
+  `__init__.py:131` calls `hass.http.async_register_static_paths()`
+  to mount the panel SPA assets.
+
 ## [0.50.1] — 2026-05-14 — Code review: critical security + crash fixes
 
 Closes the full Critical list, all Important findings (including

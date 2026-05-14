@@ -14,7 +14,8 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "bluetooth"
+    "bluetooth",
+    "http"
   ],
   "documentation": "https://github.com/dzerik/melitta-barista-ha",
   "integration_type": "device",
@@ -29,5 +30,5 @@
     "pycryptodome>=3.0.0",
     "aiosqlite>=0.19.0"
   ],
-  "version": "0.50.1"
+  "version": "0.50.2"
 }
