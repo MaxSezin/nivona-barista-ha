@@ -63,6 +63,29 @@ captive_portal:
 api:
   encryption:
     key: !secret api_encryption_key
+  # Manual recovery action — call from HA Developer Tools or from
+  # automations when pairing gets wedged. Clears the ESP32's BLE bond
+  # table (esp_ble_remove_bond_device for every stored peer) so the
+  # next `pair=True` from a Bluetooth-proxy client triggers a fresh
+  # SMP exchange instead of presenting a stale LTK. See
+  # https://github.com/dzerik/melitta-barista-ha/issues/10
+  #
+  # In HA: Developer Tools → Services →
+  #   esphome.${name}_clear_ble_bonds → Call service
+  # Then call melitta_barista.repair_connection (or use the panel's
+  # Repair button) so the integration reconnects with the fresh bond.
+  actions:
+    - action: clear_ble_bonds
+      then:
+        - lambda: |-
+            ESP_LOGW("ble_bonds", "Clearing all BLE bonds via HA service");
+            int dev_num = esp_ble_get_bond_device_num();
+            esp_ble_bond_dev_t dev_list[dev_num];
+            esp_ble_get_bond_device_list(&dev_num, dev_list);
+            for (int i = 0; i < dev_num; i++) {
+              esp_ble_remove_bond_device(dev_list[i].bd_addr);
+            }
+            ESP_LOGW("ble_bonds", "Removed %d bonded device(s)", dev_num);
 
 ota:
   - platform: esphome

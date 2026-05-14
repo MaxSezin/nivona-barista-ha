@@ -2,6 +2,57 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.51.0-beta.3] — 2026-05-14 — ESP-side bond clearing recipe
+
+beta.1 and beta.2 reload the ESPHome scanner to evict the **HA-side**
+cached `BLEDevice`. That fixes the wedge when the cache points at a
+dead `source` UUID — but it does NOT touch the **ESP-side bond
+table** (LTK stored in NVS flash on the proxy). If the ESP firmware
+holds a stale bond key and the machine reset its internal SMP state,
+the proxy keeps presenting an LTK the machine refuses to acknowledge,
+and every `pair=True` lands on the same rejection.
+
+`client.unpair()` only fixes that when the ESP firmware was built
+with the unpair feature flag. Many community-built proxies don't
+have it, so the call returns `BluetoothConnectionDroppedError` and
+the bond stays forever.
+
+### Added
+
+- `esphome/ble-proxy-xiao-c6.yaml` now ships an `api.actions:` block
+  with a `clear_ble_bonds` action that calls
+  `esp_ble_remove_bond_device` for every entry in the ESP bond
+  table. After flashing the proxy, HA exposes the action as the
+  service `esphome.<proxy_name>_clear_ble_bonds`. Calling it once
+  resets the NVS bond table; the next `pair=True` triggers a fresh
+  SMP exchange and the machine creates a new bond from scratch.
+
+### Changed
+
+- `_try_unpair` now logs a WARNING (with concrete service name) when
+  `client.unpair()` fails on the ESPHome path, pointing users at the
+  `clear_ble_bonds` workaround instead of just hiding the failure in
+  DEBUG.
+
+### Recovery workflow when handshake stays wedged
+
+If the integration's auto-recovery / `repair_connection` does not
+fix the red-indicator state, the bond on the ESP is the next thing
+to clear:
+
+1. Update your ESPHome proxy YAML with the `clear_ble_bonds` action
+   from `esphome/ble-proxy-xiao-c6.yaml` (api → actions block).
+2. Flash the proxy (OTA from the ESPHome dashboard is fine).
+3. Developer Tools → Services →
+   `esphome.<your_proxy_name>_clear_ble_bonds` → Call.
+4. Settings → Devices & Services → Melitta entry → Configure →
+   Repair connection → Submit.
+
+Step 3 wipes the NVS bond on the ESP; step 4 evicts the cached
+BLEDevice and forces our `_connect_impl` to start from `pair=False`
+(which now fails fast because there is no bond) then escalate to
+`pair=True`, this time provoking a fresh SMP exchange.
+
 ## [0.51.0-beta.2] — 2026-05-14 — Repair step in Options Flow
 
 Builds on beta.1. Same recovery routine, now also exposed as a UI

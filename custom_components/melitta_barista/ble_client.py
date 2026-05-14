@@ -685,6 +685,13 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
 
         This is needed when pair=True fails because the proxy holds a stale bond
         that the peripheral rejects (error 82 / BluetoothConnectionDroppedError).
+
+        On the ESPHome proxy path, `client.unpair()` only works if the ESP
+        firmware was built with the unpair feature flag — older firmwares
+        raise `BluetoothConnectionDroppedError` and the bond stays in NVS
+        forever. If that happens, the user needs to clear the bond table
+        on the ESP itself (see esphome/ble-proxy-xiao-c6.yaml — the
+        `clear_ble_bonds` API action wired to `esp_ble_remove_bond_device`).
         """
         try:
             _LOGGER.info("Clearing stale bond for %s", self._address)
@@ -693,7 +700,17 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
                 await client.unpair()
                 _LOGGER.info("Unpaired %s successfully", self._address)
             except (BleakError, OSError, NotImplementedError, AttributeError):
-                _LOGGER.debug("unpair() failed or not supported", exc_info=True)
+                _LOGGER.warning(
+                    "unpair() failed for %s — ESP firmware may not support "
+                    "it. If pairing stays wedged, call the "
+                    "`esphome.<proxy_name>_clear_ble_bonds` service "
+                    "(requires the action shown in our sample "
+                    "esphome/ble-proxy-xiao-c6.yaml) to forget the bond "
+                    "on the ESP NVS, then call "
+                    "`melitta_barista.repair_connection`.",
+                    self._address,
+                )
+                _LOGGER.debug("unpair() exception", exc_info=True)
             finally:
                 try:
                     await client.disconnect()
