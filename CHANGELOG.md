@@ -2,6 +2,79 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.51.0] — 2026-05-15 — Pairing recovery — GA
+
+Stable release of the pairing-recovery work that ran through beta.1
+through beta.7. Real-device validated: the Force re-pair (hard) flow
+now resolves the issue #10 wedge end-to-end as long as the user
+puts the coffee machine into pairing mode before pressing Submit.
+
+> **Required ESPHome action**: pull the latest `esphome/ble-proxy-xiao-*.yaml`
+> from this repo and flash via the ESPHome dashboard. The recovery
+> flow depends on three actions that ship in the YAML:
+> `clear_ble_bonds`, `disconnect_ble_peer`, and the `factory_reset`
+> button. Without a reflash, the integration falls back to a partial
+> recovery path.
+
+### Summary of what made it into 0.51.0
+
+- **Layered recovery** for the issue #10 wedge:
+  - Settle delay between `pair=False` fail and `pair=True` so the ESP
+    has time to release the BLE socket (beta.1).
+  - `disconnect()` resets `_paired` (beta.1).
+  - Counter for `_consecutive_connect_failures`; auto-trigger of the
+    repair routine after 5 consecutive failures (beta.1).
+  - Soft repair: reload the ESPHome ConfigEntry to evict the cached
+    `BLEDevice` from `habluetooth._previous_service_info` (beta.1).
+  - `melitta_barista.repair_connection` service for manual trigger
+    (beta.1).
+  - Options Flow → **Repair connection** menu entry (beta.2).
+  - `clear_ble_bonds` action in `esphome/ble-proxy-xiao-*.yaml` to
+    wipe the ESP NVS bond table (beta.3).
+  - Robust proxy-entry matcher: tries `entry.unique_id`,
+    `entry.data["bluetooth_mac_address"]`, `device_info.bluetooth_mac_address`,
+    `device_info.mac_address`, and `device_info.name` (beta.4 + beta.5).
+    The critical fix in beta.5: ESP32 chips have separate WiFi and
+    BLE MACs (BT = WiFi + 2); we were comparing the wrong one.
+  - Options Flow → **Force re-pair (hard)** menu entry — wipes ESP
+    bond, surgical GAP disconnect of the peer, reloads the proxy
+    entry, and re-arms the reconnect loop (beta.4).
+  - `disconnect_ble_peer` action in the proxy YAML to drop a stuck
+    `state: ESTABLISHED` connection slot (beta.6).
+  - UI strings now spell out the manual pairing-mode step
+    everywhere recovery is referenced (beta.7).
+- **Pairing-wedged Repair Issue** in HA UI with a learn-more link
+  to issue #10 and a 3-step recovery list. Auto-cleared on the next
+  successful connect.
+- **Best-practice ESPHome YAML extras** carried over from the
+  official `esphome/bluetooth-proxies` reference: `factory_reset`
+  button (nuke the whole NVS), `safe_mode` button (recovery boot),
+  `BLE bonds` text sensor (live count from
+  `esp_ble_get_bond_device_num`), `min_version: 2025.8.0`,
+  `esp32_ble.max_connections` raised to match `connection_slots+1`.
+- **Tests**: `tests/test_pairing_recovery.py` covers the settle
+  delay, disconnect hygiene, counter increment/reset, repair
+  callback firing at threshold, threshold=0 off switch, missing
+  callback safety, public callback API, and all four Options Flow
+  abort paths (repair done / partial / no-action / failed). **759
+  total tests passing**.
+- **Documentation**: README now has an `ESPHome BLE proxy
+  (recommended transport)` section listing the YAML reference and
+  the four buttons it provides, plus a `BLE pairing recovery`
+  section walking through the three escalating recovery paths.
+  Pairing instructions in `Step 3` are updated to spell out that
+  pairing mode is a one-time step per central.
+
+### Migration / upgrade notes
+
+If you're coming from any `0.51.0-beta.*`: nothing to change beyond
+the manifest version bump. If you're coming from 0.50.x: pull the
+latest `esphome/ble-proxy-xiao-*.yaml` and reflash your proxy as
+described above. Without it, Force re-pair (hard) and the
+`melitta_barista.repair_connection` service will fall back to the
+soft path (reload ESPHome entry only) — that's enough for cache
+eviction but does not wipe the ESP NVS bond.
+
 ## [0.51.0-beta.7] — 2026-05-14 — Pairing-mode requirement documented
 
 Real-device beta.6 testing surfaced the remaining piece: Melitta

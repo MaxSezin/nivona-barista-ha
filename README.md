@@ -247,16 +247,16 @@ Make sure Bluetooth is enabled on your coffee machine (refer to the machine manu
 
 ### Step 3: Pair the device
 
-The integration requires BLE pairing (bonding) with your coffee machine. During setup, you will be prompted to enable pairing mode on the machine:
+The integration requires BLE pairing (bonding) with your coffee machine. **The machine only accepts SMP from a new BLE central when it is explicitly in pairing mode** — this is a one-time step per central.
 
-1. On the machine, open the **Settings** menu and navigate to **Bluetooth** / **Connectivity**.
-2. Enable **pairing mode** — the BLE icon on the machine should start blinking.
+1. On the machine, open the **Settings** menu and navigate to **Bluetooth** / **Connectivity** / **App connection**.
+2. Enable **pairing mode** — the BLE icon on the machine should start blinking (path varies by firmware: look for "Pair new device" / "App-Verbindung" / "Reset connection").
 3. Press **Submit** in the Home Assistant setup dialog.
 4. The integration will connect and pair automatically. If the machine shows a confirmation prompt, accept it.
 
 > **Note:** The machine supports only one active BLE connection at a time. Make sure any official manufacturer app (Melitta Connect / Nivona App) is disconnected before pairing with Home Assistant.
 
-If the device is already paired (e.g., via `bluetoothctl`), the integration detects this and skips the pairing step.
+If the device is already paired (e.g., via `bluetoothctl`), the integration detects this and skips the pairing step. Subsequent reconnects do not require pairing mode — only the very first bond does.
 
 ### Manual pairing via bluetoothctl
 
@@ -413,6 +413,10 @@ Save a recipe to a DirectKey profile slot.
 | `profile_id` | int | No | Profile ID (default: active profile) |
 | (recipe params) | — | — | Same as brew_freestyle |
 
+### `melitta_barista.repair_connection`
+
+Manual one-tap recovery for a wedged BLE pairing (see [BLE pairing recovery](#ble-pairing-recovery)). Walks every Melitta entry, finds the ESPHome proxy that owns each scanner, and reloads it to evict HA-side BLEDevice cache. No parameters. Equivalent to Configure → Repair connection in Options Flow.
+
 ## Options
 
 Configure the integration via **Settings → Devices & Services → Melitta Barista Smart & Nivona → Configure**.
@@ -565,6 +569,70 @@ English, Russian, Ukrainian, German, Polish, Czech, Slovak, French, Italian, Spa
 - **Single BLE client**: The integration operates as a single BLE client. User profile names can be read and edited, but per-profile recipe customizations are not yet exposed.
 - **Polling interval**: Machine status is polled every 5 seconds while connected. There may be a brief delay between a physical action and the state update in Home Assistant.
 - **Recipe parameters**: Built-in recipes use the machine's stored default parameters. For full customization, use the Freestyle recipe builder with adjustable process, intensity, temperature, shots, and portion for each component.
+
+## ESPHome BLE proxy (recommended transport)
+
+The integration supports two BLE transports:
+
+- **Local BlueZ adapter** on the Home Assistant host (works out of the box on HA OS hardware with a Bluetooth radio).
+- **ESPHome BLE proxy** — a small ESP32 board flashed with our reference config, placed near the machine. Strongly recommended if you have any range or interference issues. Significantly more stable on long-running setups.
+
+### Reference firmware (in this repo)
+
+`esphome/` contains two production-tested configs:
+
+| File | Hardware | Notes |
+|---|---|---|
+| `ble-proxy-xiao-c6.yaml` | Seeed Studio XIAO ESP32-C6 | Single-core RISC-V, RF switch for external antenna |
+| `ble-proxy-xiao-s3.yaml` | Seeed Studio XIAO ESP32-S3 | Dual-core LX7 with 8MB PSRAM, more connection slots |
+
+Both ship with the following recovery-related extras on top of the upstream ESPHome reference:
+
+- **Custom action `clear_ble_bonds`** — wipes the ESP NVS bond table (`esp_ble_remove_bond_device` for every stored peer). Surfaces in HA as `esphome.<proxy_name>_clear_ble_bonds`.
+- **Custom action `disconnect_ble_peer`** — surgical GAP disconnect of a stuck connection slot. Surfaces as `esphome.<proxy_name>_disconnect_ble_peer` with a `peer_mac` parameter.
+- **`factory_reset` button** — nuke option for the entire NVS (last-resort recovery; WiFi creds + OTA password are baked into firmware, so they survive).
+- **`safe_mode` button** — boots into recovery mode (API + OTA only) for fixing bad configs.
+- **`BLE bonds` text sensor** — live count from `esp_ble_get_bond_device_num()` updated every 30 s. Lets you confirm `clear_ble_bonds` actually emptied NVS.
+
+After flashing one of these to your proxy, all four buttons + the bond-count sensor appear in HA under the proxy's device card, and the two custom services become callable from Developer Tools or automations.
+
+> **Important:** if you used an earlier release of these YAML files, **reflash via the ESPHome dashboard (OTA)** to pick up `clear_ble_bonds`, `disconnect_ble_peer`, and the `factory_reset` button. Without these the recovery flow below falls back to a partial path.
+
+## BLE pairing recovery
+
+Long quiet periods, ESP-proxy restarts, machine factory resets, and certain Home Assistant restart sequences can leave the pairing wedged on either side. The symptom is one or more of:
+
+- The machine displays a **red** Bluetooth indicator (it's actively rejecting our handshake).
+- Logs show `HU handshake timeout` from the integration.
+- ESPHome proxy logs show `auth fail reason=82` (SMP rejection) and/or `Connection request ignored, state: ESTABLISHED`.
+
+The integration ships three escalating recovery paths, all of which used to require deleting and re-adding the entry. They now work without removing the integration.
+
+### 1. Soft repair (automatic, plus manual button)
+
+After **5 consecutive failed connects** the reconnect loop automatically reloads the ESPHome proxy ConfigEntry. This evicts the cached BLEDevice from `habluetooth._previous_service_info`; the next advertisement rebuilds it with a fresh `source` and `address_type`. Manual trigger: **Settings → Devices & Services → your Melitta entry → Configure → Repair connection**.
+
+A Repair Issue surfaces in the UI the moment auto-trigger fires, with a link to issue #10 and a 3-step recovery list.
+
+### 2. Force re-pair (hard)
+
+When the soft path isn't enough, **Configure → Force re-pair (hard)**:
+
+1. Disconnects our client.
+2. Calls `esphome.<proxy>_clear_ble_bonds` — ESP NVS bond table wiped.
+3. Calls `esphome.<proxy>_disconnect_ble_peer` — surgical GAP disconnect, releases the stuck `state: ESTABLISHED` connection slot.
+4. Reloads the ESPHome ConfigEntry — evicts HA-side cached BLEDevice.
+5. Re-arms our reconnect loop.
+
+**Before pressing Submit, put the machine into pairing mode** (Settings → Bluetooth → Pair new device / App-Verbindung — path varies by firmware). Without pairing mode the machine refuses the fresh SMP exchange with `auth fail reason=82`. Once the bond is created, subsequent reconnects do not need pairing mode.
+
+### 3. Nuke (the ESP factory reset button)
+
+If even Force re-pair doesn't work, press the **Factory reset** button on the proxy device card. It wipes the entire ESP NVS — bond table, every cached preference. WiFi and OTA password survive (they're baked into the firmware). After the device reboots, run Force re-pair from HA with the machine in pairing mode.
+
+### Manual service / automation
+
+The service `melitta_barista.repair_connection` runs the same soft-repair routine across every Melitta entry. Useful as a one-tap button or scheduled automation. The two ESPHome services (`clear_ble_bonds`, `disconnect_ble_peer`) are also exposed for granular control.
 
 ## Troubleshooting
 
