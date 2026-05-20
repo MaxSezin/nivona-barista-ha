@@ -95,7 +95,7 @@ Crypto and handshake are identical in structure to Melitta; the risk is primaril
 - **Custom Lovelace card** *(Melitta only — Nivona not yet supported)* — dedicated card available separately: [melitta-barista-card](https://github.com/dzerik/melitta-barista-card)
 - **Standalone PWA** *(Melitta only — Nivona not yet supported)* — full-screen React app for tablets and kiosks: [melitta-barista-app](https://github.com/dzerik/melitta-barista-app)
 - **29 languages** — full localization for all European and Slavic languages
-- **🧪 ESP32 BLE emulator** (unique) — a bundled ESP-IDF firmware that impersonates a real Nivona machine at the BLE layer (ADV, AD00 service, encrypted frames, HU handshake, HX status, HE brew). Lets you develop, pair, and brew against Home Assistant **and** the official Nivona Android app without any physical machine. See [`esp_emulator/`](esp_emulator/).
+- **🧪 ESP32 BLE emulator** (unique) — a companion ESP-IDF firmware that impersonates a real Nivona machine at the BLE layer (ADV, AD00 service, encrypted frames, HU handshake, HX status, HE brew). Lets you develop, pair, and brew against Home Assistant **and** the official Nivona Android app without any physical machine. Lives in its own repo: [dzerik/nivona-ble-emulator](https://github.com/dzerik/nivona-ble-emulator).
 
 ## Supported Recipes
 
@@ -212,11 +212,11 @@ Machine configuration: energy saving, auto bean select, rinsing toggle, water ha
 
 ![Settings](docs/screenshots/settings.png)
 
-## ESP32 BLE Emulator (unique)
+## ESP32 BLE Emulator (companion project)
 
-This repository ships a **bundled ESP-IDF firmware** ([`esp_emulator/`](esp_emulator/)) that impersonates a real Nivona coffee machine at the BLE layer — useful for developing, pairing, brewing, and stress-testing without any physical machine.
+A companion firmware that impersonates a real Nivona coffee machine at the BLE layer — useful for developing, pairing, brewing, and stress-testing without any physical machine. To the best of the maintainer's knowledge, no other open-source Home Assistant coffee-machine integration ships a paired emulator of the hardware it drives.
 
-To the best of the maintainer's knowledge, no other open-source Home Assistant coffee-machine integration ships a paired emulator of the hardware it drives.
+**Repository:** [dzerik/nivona-ble-emulator](https://github.com/dzerik/nivona-ble-emulator) (split out of this repo in v0.51.x for independent release cadence; tags `emu-v0.2.0` through `emu-v0.7.0` carry forward).
 
 **What it emulates**
 
@@ -231,7 +231,7 @@ To the best of the maintainer's knowledge, no other open-source Home Assistant c
 - Regression harness for the BLE client, config flow, and brand-aware HX parser
 - Ground truth for the multi-brand architecture: because the emulator speaks Nivona on a bench next to a real Melitta, protocol differences cannot silently regress
 
-Supported targets: **ESP32-C6** (primary) and **ESP32-S3**. Build with `idf.py -p /dev/ttyUSB0 flash monitor`. Full setup, pinouts, and troubleshooting in [`esp_emulator/README.md`](esp_emulator/README.md).
+Supported targets: **ESP32-C6** (primary) and **ESP32-S3**. See the [emulator README](https://github.com/dzerik/nivona-ble-emulator#readme) for build / flash / troubleshooting.
 
 ## Configuration
 
