@@ -402,6 +402,22 @@ async def test_daily_tick_skips_when_disconnected(hass: HomeAssistant):
     client.read_setting.assert_not_awaited()
 
 
+def test_validate_hhmm_accepts_valid_times():
+    from custom_components.melitta_barista.config_flow import _validate_hhmm
+    assert _validate_hhmm("03:17") == "03:17"
+    assert _validate_hhmm("00:00") == "00:00"
+    assert _validate_hhmm("23:59") == "23:59"
+    assert _validate_hhmm("9:5") == "09:05"   # canonicalises
+
+
+def test_validate_hhmm_rejects_invalid():
+    import voluptuous as vol
+    from custom_components.melitta_barista.config_flow import _validate_hhmm
+    for bad in ("25:00", "12:60", "abc", "", ":", "12", "12:00:00"):
+        with pytest.raises(vol.Invalid):
+            _validate_hhmm(bad)
+
+
 @pytest.mark.asyncio
 async def test_coordinator_start_stop_idempotent_pairing(hass: HomeAssistant):
     """start() subscribes once; stop() unsubscribes the same number of times."""
