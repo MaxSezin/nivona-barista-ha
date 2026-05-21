@@ -30,6 +30,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.const import CONF_ADDRESS, CONF_NAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.util import dt as dt_util
 
 from .ble_client import MelittaBleClient
 from .const import (
@@ -201,7 +202,59 @@ class ClockSyncCoordinator:
             self._unsub_daily()
             self._unsub_daily = None
 
-    # _on_connect, _on_daily_tick, _trigger_sync added in later tasks.
+    async def _trigger_sync(self, source: str, force: bool = False) -> None:
+        """Read drift, optionally write, update `_last_sync`.
+
+        `source` is a free-form tag for logging ("reconnect" / "daily" / "service" / "test").
+        `force=True` bypasses both the drift threshold and the reconnect throttle.
+        """
+        if not self._opts.get(CONF_AUTO_SYNC_CLOCK, DEFAULT_AUTO_SYNC_CLOCK):
+            return
+        if not self._client.connected:
+            return
+
+        if source == "reconnect" and not force and self._last_sync is not None:
+            elapsed = dt_util.now() - self._last_sync
+            if elapsed < timedelta(hours=CLOCK_SYNC_THROTTLE_HOURS):
+                _LOGGER.debug("Clock sync throttled (last %s ago)", elapsed)
+                return
+
+        try:
+            machine_minutes = await self._client.read_setting(20)
+        except Exception:
+            _LOGGER.warning("Clock sync: read failed", exc_info=True)
+            return
+        if machine_minutes is None:
+            _LOGGER.debug("Clock sync: machine returned no value")
+            return
+
+        now = dt_util.now()
+        ha_minutes = now.hour * 60 + now.minute
+        threshold = int(
+            self._opts.get(
+                CONF_AUTO_SYNC_DRIFT_MINUTES, DEFAULT_AUTO_SYNC_DRIFT_MINUTES,
+            )
+        )
+        drift = _clock_circular_drift(int(machine_minutes) % 1440, ha_minutes)
+
+        if drift < threshold and not force:
+            _LOGGER.debug(
+                "Clock sync skipped (drift=%d < threshold=%d)", drift, threshold,
+            )
+            self._last_sync = now
+            return
+
+        ok = await self._client.write_setting(21, ha_minutes)
+        self._last_sync = now
+        if ok:
+            _LOGGER.info(
+                "Clock sync (%s): wrote %02d:%02d (drift was %d min)",
+                source, now.hour, now.minute, drift,
+            )
+        else:
+            _LOGGER.warning("Clock sync (%s): write rejected", source)
+
+    # _on_connect, _on_daily_tick added in later tasks.
 
 
 PANEL_URL_PATH = "melitta-barista"

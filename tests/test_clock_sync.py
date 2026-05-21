@@ -132,3 +132,152 @@ def test_circular_drift_handles_midnight_wrap():
     assert _clock_circular_drift(720, 0) == 720
     # identical
     assert _clock_circular_drift(500, 500) == 0
+
+
+@pytest.mark.asyncio
+async def test_trigger_sync_writes_when_drift_above_threshold(hass: HomeAssistant):
+    """drift=10min, threshold=2min → write with HA current minutes."""
+    from custom_components.melitta_barista import ClockSyncCoordinator
+    from custom_components.melitta_barista.const import (
+        CONF_AUTO_SYNC_CLOCK,
+        CONF_AUTO_SYNC_DRIFT_MINUTES,
+        CONF_AUTO_SYNC_DAILY_TIME,
+    )
+
+    client = _client_mock()
+    # Machine says 14:00, HA will say 14:10.
+    client.read_setting = AsyncMock(return_value=840)
+    client.write_setting = AsyncMock(return_value=True)
+
+    coord = ClockSyncCoordinator(
+        hass,
+        client,
+        {
+            CONF_AUTO_SYNC_CLOCK: True,
+            CONF_AUTO_SYNC_DRIFT_MINUTES: 2,
+            CONF_AUTO_SYNC_DAILY_TIME: "03:17",
+        },
+    )
+
+    from unittest.mock import patch
+    from datetime import datetime
+    fake_now = datetime(2026, 5, 21, 14, 10, 0)
+    with patch("custom_components.melitta_barista.dt_util.now", return_value=fake_now):
+        await coord._trigger_sync("test", force=False)
+
+    client.read_setting.assert_awaited_with(20)
+    client.write_setting.assert_awaited_with(21, 850)
+
+
+@pytest.mark.asyncio
+async def test_trigger_sync_skips_when_drift_below_threshold(hass: HomeAssistant):
+    """drift=1min, threshold=2min → no write, _last_sync set."""
+    from custom_components.melitta_barista import ClockSyncCoordinator
+    from custom_components.melitta_barista.const import (
+        CONF_AUTO_SYNC_CLOCK,
+        CONF_AUTO_SYNC_DRIFT_MINUTES,
+        CONF_AUTO_SYNC_DAILY_TIME,
+    )
+
+    client = _client_mock()
+    client.read_setting = AsyncMock(return_value=849)
+    client.write_setting = AsyncMock(return_value=True)
+
+    coord = ClockSyncCoordinator(
+        hass,
+        client,
+        {
+            CONF_AUTO_SYNC_CLOCK: True,
+            CONF_AUTO_SYNC_DRIFT_MINUTES: 2,
+            CONF_AUTO_SYNC_DAILY_TIME: "03:17",
+        },
+    )
+
+    from unittest.mock import patch
+    from datetime import datetime
+    fake_now = datetime(2026, 5, 21, 14, 10, 0)
+    with patch("custom_components.melitta_barista.dt_util.now", return_value=fake_now):
+        await coord._trigger_sync("test", force=False)
+
+    client.write_setting.assert_not_awaited()
+    assert coord._last_sync == fake_now
+
+
+@pytest.mark.asyncio
+async def test_trigger_sync_force_writes_even_if_drift_small(hass: HomeAssistant):
+    """force=True bypasses both drift and throttle."""
+    from custom_components.melitta_barista import ClockSyncCoordinator
+    from custom_components.melitta_barista.const import (
+        CONF_AUTO_SYNC_CLOCK,
+        CONF_AUTO_SYNC_DRIFT_MINUTES,
+        CONF_AUTO_SYNC_DAILY_TIME,
+    )
+
+    client = _client_mock()
+    client.read_setting = AsyncMock(return_value=850)  # exact match
+    client.write_setting = AsyncMock(return_value=True)
+
+    coord = ClockSyncCoordinator(
+        hass,
+        client,
+        {
+            CONF_AUTO_SYNC_CLOCK: True,
+            CONF_AUTO_SYNC_DRIFT_MINUTES: 5,
+            CONF_AUTO_SYNC_DAILY_TIME: "03:17",
+        },
+    )
+
+    from unittest.mock import patch
+    from datetime import datetime
+    fake_now = datetime(2026, 5, 21, 14, 10, 0)
+    with patch("custom_components.melitta_barista.dt_util.now", return_value=fake_now):
+        await coord._trigger_sync("daily", force=True)
+
+    client.write_setting.assert_awaited_with(21, 850)
+
+
+@pytest.mark.asyncio
+async def test_trigger_sync_skips_when_disabled(hass: HomeAssistant):
+    from custom_components.melitta_barista import ClockSyncCoordinator
+    from custom_components.melitta_barista.const import (
+        CONF_AUTO_SYNC_CLOCK,
+        CONF_AUTO_SYNC_DRIFT_MINUTES,
+        CONF_AUTO_SYNC_DAILY_TIME,
+    )
+
+    client = _client_mock()
+    coord = ClockSyncCoordinator(
+        hass,
+        client,
+        {
+            CONF_AUTO_SYNC_CLOCK: False,
+            CONF_AUTO_SYNC_DRIFT_MINUTES: 2,
+            CONF_AUTO_SYNC_DAILY_TIME: "03:17",
+        },
+    )
+    await coord._trigger_sync("test", force=False)
+    client.read_setting.assert_not_awaited()
+    client.write_setting.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_trigger_sync_skips_when_disconnected(hass: HomeAssistant):
+    from custom_components.melitta_barista import ClockSyncCoordinator
+    from custom_components.melitta_barista.const import (
+        CONF_AUTO_SYNC_CLOCK,
+        CONF_AUTO_SYNC_DRIFT_MINUTES,
+        CONF_AUTO_SYNC_DAILY_TIME,
+    )
+
+    client = _client_mock(connected=False)
+    coord = ClockSyncCoordinator(
+        hass,
+        client,
+        {
+            CONF_AUTO_SYNC_CLOCK: True,
+            CONF_AUTO_SYNC_DRIFT_MINUTES: 2,
+            CONF_AUTO_SYNC_DAILY_TIME: "03:17",
+        },
+    )
+    await coord._trigger_sync("test", force=False)
+    client.read_setting.assert_not_awaited()
