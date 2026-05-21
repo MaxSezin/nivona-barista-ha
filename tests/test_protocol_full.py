@@ -664,6 +664,39 @@ class TestHighLevelReadAPI:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_read_serial_success(self):
+        """read_serial returns 20-byte ASCII serial trimmed of trailing nulls."""
+        proto = MelittaProtocol(frame_timeout=1)
+        proto._key_prefix = b"\x00\x00"
+        proto._rc4_key = None
+
+        # HL expects 20-byte payload per KNOWN_COMMANDS
+        serial_bytes = b"02590029014\x00\x00\x00\x00\x00\x00\x00\x00\x00"  # 20 bytes
+        assert len(serial_bytes) == 20
+
+        async def respond():
+            await asyncio.sleep(0.05)
+            frame = bytes([FRAME_START]) + b"HL" + serial_bytes
+            cs = 0
+            for b in frame[1:]:
+                cs = (cs + b) & 0xFF
+            frame += bytes([(~cs) & 0xFF, FRAME_END])
+            proto.on_ble_data(frame)
+
+        task = asyncio.create_task(respond())
+        result = await proto.read_serial(AsyncMock())
+        await task
+        assert result == "02590029014"
+
+    @pytest.mark.asyncio
+    async def test_read_serial_timeout_returns_none(self):
+        proto = MelittaProtocol(frame_timeout=0.1)
+        proto._key_prefix = b"\x00\x00"
+        proto._rc4_key = None
+        result = await proto.read_serial(AsyncMock())
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_read_numerical_success(self):
         """read_numerical returns the integer value."""
         proto = MelittaProtocol(frame_timeout=1)

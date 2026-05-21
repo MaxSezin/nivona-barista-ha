@@ -24,6 +24,15 @@ async def async_get_config_entry_diagnostics(
         f"{address[:5]}:**:**:**:**:{address[-2:]}" if len(address) >= 17 else "redacted"
     )
 
+    # Frame logs for protocol-level diagnostics. _recent_frames captures raw
+    # bytes on every BLE notification (pre-decryption). _frame_log on the
+    # protocol object stores decoded payloads — useful for inspecting
+    # unsolicited commands like HF / HQ / HP that the integration does not
+    # currently decode.
+    protocol = getattr(client, "_protocol", None)
+    frame_log = list(getattr(protocol, "_frame_log", []))
+    recent_frames = list(getattr(client, "_recent_frames", []))
+
     return {
         "entry": {
             "title": entry.title,
@@ -34,6 +43,7 @@ async def async_get_config_entry_diagnostics(
         "device": {
             "connected": client.connected,
             "firmware": client.firmware_version,
+            "serial": client.serial_number,
             "features": str(client.features) if client.features is not None else None,
             "machine_type": str(client.machine_type) if client.machine_type else None,
             "model_name": client.model_name,
@@ -54,4 +64,8 @@ async def async_get_config_entry_diagnostics(
             "names": dict(client.profile_names),
         },
         "options": dict(entry.options),
+        "ble_trace": {
+            "recent_frames_raw": recent_frames,
+            "frame_log_decoded": frame_log,
+        },
     }

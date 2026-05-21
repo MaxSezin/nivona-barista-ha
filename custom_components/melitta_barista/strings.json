@@ -331,6 +331,9 @@
       },
       "filter_dependency": {
         "name": "Filter dependency"
+      },
+      "serial_number": {
+        "name": "Serial number"
       }
     },
     "binary_sensor": {

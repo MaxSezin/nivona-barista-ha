@@ -21,6 +21,7 @@ def _mock_client(status=None):
     client.connected = True
     client.status = status
     client.firmware_version = "1.2.3"
+    client.serial_number = "0259002901420260521"
     client.machine_type = None
     client.model_name = "Melitta Barista"
     client.selected_recipe = None
@@ -135,6 +136,18 @@ async def test_firmware_sensor(
     fw = [s for s in hass.states.async_all("sensor") if "firmware" in s.entity_id]
     assert len(fw) >= 1
     assert fw[0].state == "1.2.3"
+
+
+async def test_serial_sensor(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    """Test serial sensor surfaces serial_number from the client."""
+    client = _mock_client()
+    await _setup_integration(hass, mock_entry, client)
+
+    serial = [s for s in hass.states.async_all("sensor") if "serial" in s.entity_id]
+    assert len(serial) >= 1
+    assert serial[0].state == "0259002901420260521"
 
 
 async def test_action_required_sensor(

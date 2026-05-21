@@ -78,7 +78,9 @@ async def test_diagnostics_full_result_structure(hass: HomeAssistant) -> None:
 
     result = await async_get_config_entry_diagnostics(hass, entry)
 
-    assert set(result.keys()) == {"entry", "device", "status", "counters", "profiles", "options"}
+    assert set(result.keys()) == {
+        "entry", "device", "status", "counters", "profiles", "options", "ble_trace",
+    }
 
     # Entry section
     assert result["entry"]["title"] == entry.title
@@ -101,6 +103,12 @@ async def test_diagnostics_full_result_structure(hass: HomeAssistant) -> None:
 
     # Options section
     assert result["options"] == {"poll_interval": 10.0}
+
+    # BLE trace section
+    assert "recent_frames_raw" in result["ble_trace"]
+    assert "frame_log_decoded" in result["ble_trace"]
+    assert isinstance(result["ble_trace"]["recent_frames_raw"], list)
+    assert isinstance(result["ble_trace"]["frame_log_decoded"], list)
 
 
 async def test_diagnostics_address_redacted(hass: HomeAssistant) -> None:

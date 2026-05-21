@@ -74,6 +74,7 @@ async def async_setup_entry(
         MelittaActionRequiredSensor(client, entry, name),
         MelittaConnectionSensor(client, entry, name),
         MelittaFirmwareSensor(client, entry, name),
+        MelittaSerialSensor(client, entry, name),
         MelittaFeaturesSensor(client, entry, name),
         MelittaTotalCupsSensor(client, entry, name),
     ]
@@ -258,6 +259,22 @@ class MelittaFirmwareSensor(_MelittaSensorBase):
     @property
     def native_value(self) -> str | None:
         return self._client.firmware_version
+
+
+class MelittaSerialSensor(_MelittaSensorBase):
+    """Machine serial number (read via HL on connect)."""
+
+    _attr_translation_key = "serial_number"
+    _attr_icon = "mdi:identifier"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._client.address}_serial"
+
+    @property
+    def native_value(self) -> str | None:
+        return self._client.serial_number
 
 
 class MelittaFeaturesSensor(_MelittaSensorBase):

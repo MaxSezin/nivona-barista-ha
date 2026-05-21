@@ -149,6 +149,7 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
         self._brew_lock = asyncio.Lock()
         self._status: MachineStatus | None = None
         self._firmware: str | None = None
+        self._serial: str | None = None
         self._features: FeatureFlags | None = None
         self._machine_type: MachineType | None = None
         self._dis_info: dict[str, str] = {}
@@ -224,6 +225,15 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
     @property
     def firmware_version(self) -> str | None:
         return self._firmware
+
+    @property
+    def serial_number(self) -> str | None:
+        """Machine serial number (read via HL on connect).
+
+        ``None`` until the first successful read or if the machine never
+        answered HL on this firmware.
+        """
+        return self._serial
 
     @property
     def brand(self) -> "BrandProfile":
@@ -789,6 +799,16 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
             # Read firmware version
             self._firmware = await self._protocol.read_version(self._write_ble)
             _LOGGER.debug("Firmware: %s", self._firmware)
+
+            # Read serial number via HL. Some firmwares don't answer — that's
+            # fine, we fall back to the DIS string field and the sensor stays
+            # at None.
+            try:
+                self._serial = await self._protocol.read_serial(self._write_ble)
+                if self._serial:
+                    _LOGGER.debug("Serial: %s", self._serial)
+            except Exception:  # noqa: BLE001 — protocol can raise anything
+                _LOGGER.debug("Failed to read serial via HL", exc_info=True)
 
             # Read Device Information Service (0x180A) for precise
             # manufacturer / model / serial / FW-HW-SW revision strings.
