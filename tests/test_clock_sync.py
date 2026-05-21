@@ -261,6 +261,64 @@ async def test_trigger_sync_skips_when_disabled(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
+async def test_on_connect_schedules_trigger_sync(hass: HomeAssistant):
+    """connected=True calls _trigger_sync('reconnect') via async_create_task."""
+    from custom_components.melitta_barista import ClockSyncCoordinator
+    from custom_components.melitta_barista.const import (
+        CONF_AUTO_SYNC_CLOCK,
+        CONF_AUTO_SYNC_DRIFT_MINUTES,
+        CONF_AUTO_SYNC_DAILY_TIME,
+    )
+
+    client = _client_mock()
+    client.read_setting = AsyncMock(return_value=840)
+    client.write_setting = AsyncMock(return_value=True)
+
+    coord = ClockSyncCoordinator(
+        hass,
+        client,
+        {
+            CONF_AUTO_SYNC_CLOCK: True,
+            CONF_AUTO_SYNC_DRIFT_MINUTES: 2,
+            CONF_AUTO_SYNC_DAILY_TIME: "03:17",
+        },
+    )
+
+    from unittest.mock import patch
+    from datetime import datetime
+    fake_now = datetime(2026, 5, 21, 14, 10, 0)
+    with patch("custom_components.melitta_barista.dt_util.now", return_value=fake_now):
+        coord._on_connect(True)
+        # Drain pending tasks scheduled by hass.async_create_task
+        await hass.async_block_till_done()
+
+    client.write_setting.assert_awaited_with(21, 850)
+
+
+def test_on_connect_ignores_disconnect_event(hass: HomeAssistant):
+    """connected=False does nothing."""
+    from custom_components.melitta_barista import ClockSyncCoordinator
+    from custom_components.melitta_barista.const import (
+        CONF_AUTO_SYNC_CLOCK,
+        CONF_AUTO_SYNC_DRIFT_MINUTES,
+        CONF_AUTO_SYNC_DAILY_TIME,
+    )
+
+    client = _client_mock()
+    coord = ClockSyncCoordinator(
+        hass,
+        client,
+        {
+            CONF_AUTO_SYNC_CLOCK: True,
+            CONF_AUTO_SYNC_DRIFT_MINUTES: 2,
+            CONF_AUTO_SYNC_DAILY_TIME: "03:17",
+        },
+    )
+    coord._on_connect(False)
+    client.read_setting.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_trigger_sync_skips_when_disconnected(hass: HomeAssistant):
     from custom_components.melitta_barista import ClockSyncCoordinator
     from custom_components.melitta_barista.const import (

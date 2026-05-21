@@ -254,7 +254,18 @@ class ClockSyncCoordinator:
         else:
             _LOGGER.warning("Clock sync (%s): write rejected", source)
 
-    # _on_connect, _on_daily_tick added in later tasks.
+    @callback
+    def _on_connect(self, connected: bool) -> None:
+        """Connection callback hook.
+
+        Fired on every BLE connection state transition. We schedule a
+        reconnect-source sync only on the rising edge (False→True).
+        """
+        if not connected:
+            return
+        self._hass.async_create_task(self._trigger_sync("reconnect", force=False))
+
+    # _on_daily_tick added in later tasks.
 
 
 PANEL_URL_PATH = "melitta-barista"
