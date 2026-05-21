@@ -118,3 +118,17 @@ async def test_repair_issue_not_created_on_fresh_install(hass: HomeAssistant):
 
     issue = ir.async_get(hass).async_get_issue(DOMAIN, "clock_entity_migration")
     assert issue is None
+
+
+def test_circular_drift_handles_midnight_wrap():
+    """drift across midnight must be the shorter circular distance."""
+    from custom_components.melitta_barista import _clock_circular_drift
+
+    # 00:01 vs 23:59 → 2 minutes, not 1438
+    assert _clock_circular_drift(1, 1439) == 2
+    # 14:30 vs 14:32 → 2
+    assert _clock_circular_drift(870, 872) == 2
+    # 12:00 vs 00:00 → 720 (max)
+    assert _clock_circular_drift(720, 0) == 720
+    # identical
+    assert _clock_circular_drift(500, 500) == 0

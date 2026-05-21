@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import pathlib
+from collections.abc import Mapping
+from datetime import datetime, time as dt_time, timedelta
+from typing import Any
 
 from bleak.exc import BleakError
 from homeassistant.components import bluetooth
@@ -53,6 +56,14 @@ from .const import (
     DEFAULT_RECIPE_RETRIES,
     DEFAULT_INITIAL_CONNECT_DELAY,
     DEFAULT_AUTO_CONFIRM_PROMPTS,
+    CONF_AUTO_SYNC_CLOCK,
+    CONF_AUTO_SYNC_DRIFT_MINUTES,
+    CONF_AUTO_SYNC_DAILY_TIME,
+    CLOCK_SYNC_THROTTLE_HOURS,
+    DEFAULT_AUTO_SYNC_CLOCK,
+    DEFAULT_AUTO_SYNC_DRIFT_MINUTES,
+    DEFAULT_AUTO_SYNC_DAILY_TIME,
+    SERVICE_SYNC_CLOCK,
 )
 
 _LOGGER = logging.getLogger("melitta_barista")
@@ -139,6 +150,58 @@ def _async_check_clock_migration(
         translation_key="clock_entity_migration",
         learn_more_url="https://github.com/dzerik/melitta-ha-integration/blob/main/CHANGELOG.md#0520",
     )
+
+
+def _clock_circular_drift(a: int, b: int) -> int:
+    """Shortest circular distance between two minutes-of-day values."""
+    diff = abs(a - b)
+    return min(diff, 1440 - diff)
+
+
+class ClockSyncCoordinator:
+    """Reconnect-throttled + daily auto-sync of the machine RTC.
+
+    Reads setting 20 (current machine clock) to compute drift against
+    Home Assistant local time, then writes setting 21 if needed.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        client: MelittaBleClient,
+        options: Mapping[str, Any],
+    ) -> None:
+        self._hass = hass
+        self._client = client
+        self._opts = options
+        self._last_sync: datetime | None = None
+        self._unsub_daily = None
+
+    def start(self) -> None:
+        """Subscribe to connection callback + register daily timer."""
+        from homeassistant.helpers.event import async_track_time_change  # noqa: PLC0415
+
+        self._client.add_connection_callback(self._on_connect)
+        daily = str(
+            self._opts.get(CONF_AUTO_SYNC_DAILY_TIME, DEFAULT_AUTO_SYNC_DAILY_TIME)
+        )
+        h_str, m_str = daily.split(":")
+        self._unsub_daily = async_track_time_change(
+            self._hass,
+            self._on_daily_tick,
+            hour=int(h_str),
+            minute=int(m_str),
+            second=0,
+        )
+
+    def stop(self) -> None:
+        """Tear down listeners. Idempotent."""
+        self._client.remove_connection_callback(self._on_connect)
+        if self._unsub_daily is not None:
+            self._unsub_daily()
+            self._unsub_daily = None
+
+    # _on_connect, _on_daily_tick, _trigger_sync added in later tasks.
 
 
 PANEL_URL_PATH = "melitta-barista"
