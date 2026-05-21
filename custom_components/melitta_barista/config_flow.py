@@ -31,6 +31,9 @@ from .const import (
     CONF_AUTO_CONFIRM_PROMPTS,
     CONF_BRAND,
     CONF_FAMILY_OVERRIDE,
+    CONF_AUTO_SYNC_CLOCK,
+    CONF_AUTO_SYNC_DRIFT_MINUTES,
+    CONF_AUTO_SYNC_DAILY_TIME,
     DEFAULT_POLL_INTERVAL,
     DEFAULT_RECONNECT_DELAY,
     DEFAULT_RECONNECT_MAX_DELAY,
@@ -41,11 +44,32 @@ from .const import (
     DEFAULT_RECIPE_RETRIES,
     DEFAULT_INITIAL_CONNECT_DELAY,
     DEFAULT_AUTO_CONFIRM_PROMPTS,
+    DEFAULT_AUTO_SYNC_CLOCK,
+    DEFAULT_AUTO_SYNC_DRIFT_MINUTES,
+    DEFAULT_AUTO_SYNC_DAILY_TIME,
 )
 
 _LOGGER = logging.getLogger("melitta_barista")
 
 PAIR_TIMEOUT = DEFAULT_PAIR_TIMEOUT
+
+
+def _validate_hhmm(value: object) -> str:
+    """Voluptuous validator for HH:MM strings.
+
+    Accepts any HH:MM where 00 <= HH <= 23 and 00 <= MM <= 59.
+    Canonicalises single-digit inputs: ``"9:5"`` → ``"09:05"``.
+    Raises ``vol.Invalid`` for anything outside that range or wrong shape.
+    """
+    if not isinstance(value, str):
+        raise vol.Invalid("must be a string")
+    parts = value.split(":")
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        raise vol.Invalid("must be HH:MM")
+    h, m = int(parts[0]), int(parts[1])
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        raise vol.Invalid("must be in 00:00..23:59")
+    return f"{h:02d}:{m:02d}"
 
 # Neutral fallback shown when brand cannot be inferred from the BLE
 # advertisement (e.g. manual MAC entry before connection).
@@ -588,5 +612,21 @@ class MelittaOptionsFlow(OptionsFlow):
                     CONF_INITIAL_CONNECT_DELAY,
                     default=options.get(CONF_INITIAL_CONNECT_DELAY, DEFAULT_INITIAL_CONNECT_DELAY),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=30.0)),
+                vol.Optional(
+                    CONF_AUTO_SYNC_CLOCK,
+                    default=options.get(CONF_AUTO_SYNC_CLOCK, DEFAULT_AUTO_SYNC_CLOCK),
+                ): bool,
+                vol.Optional(
+                    CONF_AUTO_SYNC_DRIFT_MINUTES,
+                    default=options.get(
+                        CONF_AUTO_SYNC_DRIFT_MINUTES, DEFAULT_AUTO_SYNC_DRIFT_MINUTES,
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=60)),
+                vol.Optional(
+                    CONF_AUTO_SYNC_DAILY_TIME,
+                    default=options.get(
+                        CONF_AUTO_SYNC_DAILY_TIME, DEFAULT_AUTO_SYNC_DAILY_TIME,
+                    ),
+                ): vol.All(str, _validate_hhmm),
             }),
         )

@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import pathlib
+from collections.abc import Mapping
+from datetime import datetime, time as dt_time, timedelta
+from typing import Any
 
 from bleak.exc import BleakError
 from homeassistant.components import bluetooth
@@ -19,7 +22,7 @@ from homeassistant.components.websocket_api import (
 )
 import voluptuous as vol
 
-import time
+from time import monotonic as _time_monotonic, perf_counter as _time_perf_counter
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -27,6 +30,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.const import CONF_ADDRESS, CONF_NAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.util import dt as dt_util
 
 from .ble_client import MelittaBleClient
 from .const import (
@@ -53,6 +57,14 @@ from .const import (
     DEFAULT_RECIPE_RETRIES,
     DEFAULT_INITIAL_CONNECT_DELAY,
     DEFAULT_AUTO_CONFIRM_PROMPTS,
+    CONF_AUTO_SYNC_CLOCK,
+    CONF_AUTO_SYNC_DRIFT_MINUTES,
+    CONF_AUTO_SYNC_DAILY_TIME,
+    CLOCK_SYNC_THROTTLE_HOURS,
+    DEFAULT_AUTO_SYNC_CLOCK,
+    DEFAULT_AUTO_SYNC_DRIFT_MINUTES,
+    DEFAULT_AUTO_SYNC_DAILY_TIME,
+    SERVICE_SYNC_CLOCK,
 )
 
 _LOGGER = logging.getLogger("melitta_barista")
@@ -65,6 +77,7 @@ PLATFORMS: list[Platform] = [
     Platform.NUMBER,
     Platform.SWITCH,
     Platform.TEXT,
+    Platform.TIME,
 ]
 
 
@@ -111,6 +124,162 @@ def _async_cleanup_legacy_recipe_buttons(
 
     if removed:
         _LOGGER.info("Cleaned up %d legacy recipe button entities", removed)
+
+
+def _async_clock_coordinator_key(entry_id: str) -> str:
+    """`hass.data[DOMAIN]` key for the per-entry ClockSyncCoordinator."""
+    return f"clock_coordinator_{entry_id}"
+
+
+def _async_check_clock_migration(
+    hass: HomeAssistant, entry: ConfigEntry, address: str,
+) -> None:
+    """Create a repair issue if legacy clock number entities still exist.
+
+    Versions before 0.52.0 exposed CLOCK / CLOCK_SEND as two writable
+    number entities. 0.52.0 replaces them with a single `time` entity
+    and a `sync_clock` service. We surface a repair card so users with
+    existing automations can update them.
+    """
+    from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+    registry = er.async_get(hass)
+    legacy_uids = {f"{address}_setting_20", f"{address}_setting_21"}
+    if not any(ent.unique_id in legacy_uids for ent in registry.entities.values()):
+        return
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        "clock_entity_migration",
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="clock_entity_migration",
+        learn_more_url="https://github.com/dzerik/melitta-ha-integration/blob/main/CHANGELOG.md#0520",
+    )
+
+
+def _clock_circular_drift(a: int, b: int) -> int:
+    """Shortest circular distance between two minutes-of-day values."""
+    diff = abs(a - b)
+    return min(diff, 1440 - diff)
+
+
+class ClockSyncCoordinator:
+    """Reconnect-throttled + daily auto-sync of the machine RTC.
+
+    Reads setting 20 (current machine clock) to compute drift against
+    Home Assistant local time, then writes setting 21 if needed.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        client: MelittaBleClient,
+        options: Mapping[str, Any],
+    ) -> None:
+        self._hass = hass
+        self._client = client
+        self._opts = options
+        self._last_sync: datetime | None = None
+        self._unsub_daily = None
+
+    def start(self) -> None:
+        """Subscribe to connection callback + register daily timer."""
+        from homeassistant.helpers.event import async_track_time_change  # noqa: PLC0415
+
+        self._client.add_connection_callback(self._on_connect)
+        daily = str(
+            self._opts.get(CONF_AUTO_SYNC_DAILY_TIME, DEFAULT_AUTO_SYNC_DAILY_TIME)
+        )
+        h_str, m_str = daily.split(":")
+        self._unsub_daily = async_track_time_change(
+            self._hass,
+            self._on_daily_tick,
+            hour=int(h_str),
+            minute=int(m_str),
+            second=0,
+        )
+
+    def stop(self) -> None:
+        """Tear down listeners. Idempotent."""
+        self._client.remove_connection_callback(self._on_connect)
+        if self._unsub_daily is not None:
+            self._unsub_daily()
+            self._unsub_daily = None
+
+    async def _trigger_sync(self, source: str, force: bool = False) -> None:
+        """Read drift, optionally write, update `_last_sync`.
+
+        `source` is a free-form tag for logging ("reconnect" / "daily" / "service" / "test").
+        `force=True` bypasses both the drift threshold and the reconnect throttle.
+        """
+        if not self._opts.get(CONF_AUTO_SYNC_CLOCK, DEFAULT_AUTO_SYNC_CLOCK):
+            return
+        if not self._client.connected:
+            return
+
+        if source == "reconnect" and not force and self._last_sync is not None:
+            elapsed = dt_util.now() - self._last_sync
+            if elapsed < timedelta(hours=CLOCK_SYNC_THROTTLE_HOURS):
+                _LOGGER.debug("Clock sync throttled (last %s ago)", elapsed)
+                return
+
+        try:
+            machine_minutes = await self._client.read_setting(20)
+        except Exception:
+            _LOGGER.warning("Clock sync: read failed", exc_info=True)
+            return
+        if machine_minutes is None:
+            _LOGGER.debug("Clock sync: machine returned no value")
+            return
+
+        now = dt_util.now()
+        ha_minutes = now.hour * 60 + now.minute
+        threshold = int(
+            self._opts.get(
+                CONF_AUTO_SYNC_DRIFT_MINUTES, DEFAULT_AUTO_SYNC_DRIFT_MINUTES,
+            )
+        )
+        drift = _clock_circular_drift(int(machine_minutes) % 1440, ha_minutes)
+
+        if drift < threshold and not force:
+            _LOGGER.debug(
+                "Clock sync skipped (drift=%d < threshold=%d)", drift, threshold,
+            )
+            self._last_sync = now
+            return
+
+        ok = await self._client.write_setting(21, ha_minutes)
+        self._last_sync = now
+        if ok:
+            _LOGGER.info(
+                "Clock sync (%s): wrote %02d:%02d (drift was %d min)",
+                source, now.hour, now.minute, drift,
+            )
+        else:
+            _LOGGER.warning("Clock sync (%s): write rejected", source)
+
+    @callback
+    def _on_connect(self, connected: bool) -> None:
+        """Connection callback hook.
+
+        Fired on every BLE connection state transition. We schedule a
+        reconnect-source sync only on the rising edge (False→True).
+        """
+        if not connected:
+            return
+        self._hass.async_create_task(self._trigger_sync("reconnect", force=False))
+
+    @callback
+    def _on_daily_tick(self, _now: datetime) -> None:
+        """Scheduled daily tick handler.
+
+        Bypasses throttle and drift threshold (`force=True`) so the
+        machine RTC is guaranteed at least one sync per 24 h even if
+        the BLE connection has been stable and reconnect throttle has
+        suppressed every reconnect sync.
+        """
+        self._hass.async_create_task(self._trigger_sync("daily", force=True))
 
 
 PANEL_URL_PATH = "melitta-barista"
@@ -662,9 +831,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ir.async_delete_issue(hass, DOMAIN, issue_id)
             ir.async_delete_issue(hass, DOMAIN, pairing_issue_id)
             return
-        disconnect_times.append(time.monotonic())
+        disconnect_times.append(_time_monotonic())
         # Keep only last hour
-        cutoff = time.monotonic() - 3600
+        cutoff = _time_monotonic() - 3600
         disconnect_times[:] = [t for t in disconnect_times if t > cutoff]
         if len(disconnect_times) >= max_disconnects_per_hour:
             ir.async_create_issue(
@@ -682,39 +851,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Setup-phase timing diagnostics (DEBUG level — enable
     # `logger.melitta_barista: debug` in HA to see them).
-    _t_setup_start = time.perf_counter()
+    _t_setup_start = _time_perf_counter()
 
     # Clean up legacy per-recipe button entities (v0.5.x → v0.6.0 migration)
-    _t0 = time.perf_counter()
+    _t0 = _time_perf_counter()
     _async_cleanup_legacy_recipe_buttons(hass, entry, address)
-    _LOGGER.debug("[TIMING] %s cleanup_legacy: %.0fms", address, (time.perf_counter() - _t0) * 1000)
+    _LOGGER.debug("[TIMING] %s cleanup_legacy: %.0fms", address, (_time_perf_counter() - _t0) * 1000)
+    _async_check_clock_migration(hass, entry, address)
 
-    _t0 = time.perf_counter()
+    clock_coord = ClockSyncCoordinator(hass, client, entry.options)
+    clock_coord.start()
+    entry.async_on_unload(clock_coord.stop)
+    hass.data.setdefault(DOMAIN, {})[
+        _async_clock_coordinator_key(entry.entry_id)
+    ] = clock_coord
+
+    _t0 = _time_perf_counter()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _LOGGER.debug(
         "[TIMING] %s forward_entry_setups: %.0fms",
-        address, (time.perf_counter() - _t0) * 1000,
+        address, (_time_perf_counter() - _t0) * 1000,
     )
 
     # Register freestyle service (once per integration)
-    _t0 = time.perf_counter()
+    _t0 = _time_perf_counter()
     _async_register_services(hass)
-    _LOGGER.debug("[TIMING] %s register_services: %.0fms", address, (time.perf_counter() - _t0) * 1000)
+    _LOGGER.debug("[TIMING] %s register_services: %.0fms", address, (_time_perf_counter() - _t0) * 1000)
 
     # Register AI Coffee Sommelier WebSocket handlers (DB init is lazy on first call)
-    _t0 = time.perf_counter()
+    _t0 = _time_perf_counter()
     _async_register_sommelier(hass)
-    _LOGGER.debug("[TIMING] %s register_sommelier: %.0fms", address, (time.perf_counter() - _t0) * 1000)
+    _LOGGER.debug("[TIMING] %s register_sommelier: %.0fms", address, (_time_perf_counter() - _t0) * 1000)
 
     # Register admin panel (sidebar entry + static assets) and its bootstrap
     # WS handler. Both are idempotent — repeat calls when a second config
     # entry is added do nothing.
-    _t0 = time.perf_counter()
+    _t0 = _time_perf_counter()
     _async_register_panel_websocket(hass)
     from .panel_api import async_register_panel_websocket as _register_panel_api  # noqa: PLC0415
     _register_panel_api(hass)
     await _async_register_panel(hass)
-    _LOGGER.debug("[TIMING] %s register_panel: %.0fms", address, (time.perf_counter() - _t0) * 1000)
+    _LOGGER.debug("[TIMING] %s register_panel: %.0fms", address, (_time_perf_counter() - _t0) * 1000)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
@@ -743,7 +920,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(_cancel_connect_task)
     _LOGGER.debug(
         "[TIMING] %s async_setup_entry TOTAL: %.0fms",
-        address, (time.perf_counter() - _t_setup_start) * 1000,
+        address, (_time_perf_counter() - _t_setup_start) * 1000,
     )
     _LOGGER.info("Setup complete for %s, connecting in background", address)
 
@@ -892,6 +1069,36 @@ BREW_FREESTYLE_SCHEMA = vol.Schema({
     vol.Optional("shots2", default="none"): vol.In(_SHOTS_MAP),
     vol.Optional("two_cups", default=False): cv.boolean,
 })
+
+
+def _async_resolve_clients_for_service(
+    hass: HomeAssistant, call: "ServiceCall",
+) -> list["MelittaBleClient"]:
+    """Resolve target devices in a ServiceCall to MelittaBleClient objects.
+
+    If the call has ``device_id`` targets, resolve them via the device
+    registry; otherwise return all configured entries' clients
+    (broadcast — useful for a service without explicit targeting).
+    """
+    from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+
+    device_ids = set(call.data.get("device_id", []) or [])
+    clients: list[MelittaBleClient] = []
+    if device_ids:
+        dev_reg = dr.async_get(hass)
+        for did in device_ids:
+            device = dev_reg.async_get(did)
+            if device is None:
+                continue
+            for cfg_entry_id in device.config_entries:
+                entry = hass.config_entries.async_get_entry(cfg_entry_id)
+                if entry and entry.domain == DOMAIN and hasattr(entry, "runtime_data"):
+                    clients.append(entry.runtime_data)
+    else:
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if hasattr(entry, "runtime_data"):
+                clients.append(entry.runtime_data)
+    return clients
 
 
 def _async_register_services(hass: HomeAssistant) -> None:
@@ -1176,12 +1383,41 @@ def _async_register_services(hass: HomeAssistant) -> None:
         DOMAIN, SERVICE_REPAIR_CONNECTION, _handle_repair_connection,
     )
 
+    async def _handle_sync_clock(call: ServiceCall) -> None:
+        """Push HA local time to the machine RTC (setting 21)."""
+        clients = _async_resolve_clients_for_service(hass, call)
+        if not clients:
+            raise HomeAssistantError("No Melitta machine configured")
+        now = dt_util.now()
+        minutes = now.hour * 60 + now.minute
+        any_fail = False
+        for client in clients:
+            if not client.connected:
+                raise HomeAssistantError(
+                    f"Machine {client.address} not connected",
+                )
+            ok = await client.write_setting(21, minutes)
+            if not ok:
+                any_fail = True
+        if any_fail:
+            raise HomeAssistantError("Clock sync write rejected by machine")
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SYNC_CLOCK):
+        hass.services.async_register(
+            DOMAIN, SERVICE_SYNC_CLOCK, _handle_sync_clock,
+        )
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
+        clock_coord = hass.data.get(DOMAIN, {}).pop(
+            _async_clock_coordinator_key(entry.entry_id), None,
+        )
+        if clock_coord is not None:
+            clock_coord.stop()
         client: MelittaBleClient = entry.runtime_data
         await client.disconnect()
 
@@ -1210,6 +1446,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 SERVICE_WRITE_RECIPE_PARAM,
                 SERVICE_WRITE_MYCOFFEE_PARAM,
                 SERVICE_REPAIR_CONNECTION,
+                SERVICE_SYNC_CLOCK,
             ):
                 if hass.services.has_service(DOMAIN, service):
                     hass.services.async_remove(DOMAIN, service)
@@ -1220,5 +1457,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _async_update_listener(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> None:
-    """Handle options update."""
+    """Handle options update.
+
+    Triggers a full reload of the config entry, which destroys and
+    recreates the ClockSyncCoordinator with the new options.
+    """
     await hass.config_entries.async_reload(entry.entry_id)

@@ -562,3 +562,23 @@ INTENSITY_MAP: dict[str, int] = {
 AROMA_MAP: dict[str, int] = {"standard": 0, "intense": 1}
 TEMPERATURE_MAP: dict[str, int] = {"cold": 0, "normal": 1, "high": 2}
 SHOTS_MAP: dict[str, int] = {"none": 0, "one": 1, "two": 2, "three": 3}
+
+# ---------------------------------------------------------------------------
+# Clock auto-sync (0.52.0)
+# ---------------------------------------------------------------------------
+
+# Option keys (Options Flow → advanced step)
+CONF_AUTO_SYNC_CLOCK = "auto_sync_clock"
+CONF_AUTO_SYNC_DRIFT_MINUTES = "auto_sync_drift_minutes"
+CONF_AUTO_SYNC_DAILY_TIME = "auto_sync_daily_time"
+
+# Defaults
+DEFAULT_AUTO_SYNC_CLOCK = True
+DEFAULT_AUTO_SYNC_DRIFT_MINUTES = 2
+DEFAULT_AUTO_SYNC_DAILY_TIME = "03:17"
+
+# Minimum interval between reconnect-triggered syncs (daily tick bypasses this).
+CLOCK_SYNC_THROTTLE_HOURS = 12
+
+# Service name
+SERVICE_SYNC_CLOCK = "sync_clock"

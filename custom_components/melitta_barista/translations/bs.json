@@ -83,13 +83,19 @@
           "ble_connect_timeout": "Vremensko ograničenje BLE povezivanja (sekunde)",
           "pair_timeout": "Vremensko ograničenje uparivanja (sekunde)",
           "recipe_retries": "Ponovni pokušaji čitanja/pisanja recepata",
-          "initial_connect_delay": "Kašnjenje prvog povezivanja (sekunde)"
+          "initial_connect_delay": "Kašnjenje prvog povezivanja (sekunde)",
+          "auto_sync_clock": "Auto-sync machine clock",
+          "auto_sync_drift_minutes": "Auto-sync drift threshold (minutes)",
+          "auto_sync_daily_time": "Auto-sync daily time (HH:MM)"
         },
         "data_description": {
           "ble_connect_timeout": "Vremensko ograničenje za uspostavu BLE veze (zadano: 15 s)",
           "pair_timeout": "Vremensko ograničenje BLE uparivanja tokom postavljanja (zadano: 30 s)",
           "recipe_retries": "Broj ponovnih pokušaja čitanja/pisanja recepata (zadano: 3)",
-          "initial_connect_delay": "Čekanje prije prvog pokušaja povezivanja nakon postavljanja (zadano: 3 s)"
+          "initial_connect_delay": "Čekanje prije prvog pokušaja povezivanja nakon postavljanja (zadano: 3 s)",
+          "auto_sync_clock": "Automatically push HA local time to the machine on reconnect and once per day (default: on)",
+          "auto_sync_drift_minutes": "Skip writing if measured drift is below this many minutes (default: 2)",
+          "auto_sync_daily_time": "Daily forced sync time in 24h HH:MM format (default: 03:17)"
         }
       },
       "repair": {
@@ -466,6 +472,11 @@
       "awaiting_confirmation": {
         "name": "Čeka potvrdu"
       }
+    },
+    "time": {
+      "clock": {
+        "name": "Clock"
+      }
     }
   },
   "exceptions": {
@@ -499,6 +510,16 @@
     "pairing_wedged": {
       "title": "BLE pairing recovery triggered",
       "description": "The pairing with the coffee machine ({address}) appeared wedged (the machine kept rejecting our handshake — typically shown as a red Bluetooth indicator on the machine display). The integration automatically reloaded the ESPHome BLE proxy to clear a stale cached BLEDevice.\n\nIf brewing still fails after a minute, the bond is wedged on the MACHINE side too. To fix:\n\n1. Open the machine menu → Bluetooth → Pair new device (path may say App-Verbindung / Connect / Reset connection depending on firmware).\n2. While the machine is in pairing mode, call `melitta_barista.repair_connection` (or use Settings → Devices & Services → Melitta → Configure → Force re-pair).\n3. The machine creates a fresh bond; subsequent reconnects won't need pairing mode again.\n\nIf this keeps happening on every reconnect, share logs on issue #10."
+    },
+    "clock_entity_migration": {
+      "title": "Legacy clock entities removed",
+      "description": "The number.<machine>_clock and number.<machine>_clock_send entities were removed in 0.52.0. Use the new time.<machine>_clock entity or call the melitta_barista.sync_clock service from an automation."
+    }
+  },
+  "services": {
+    "sync_clock": {
+      "name": "Sync machine clock",
+      "description": "Push Home Assistant's current local time to the machine RTC."
     }
   }
 }

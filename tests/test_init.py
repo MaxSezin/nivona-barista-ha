@@ -824,3 +824,12 @@ async def test_update_listener_reloads_entry(
         await hass.async_block_till_done()
 
     assert mock_entry.state is ConfigEntryState.LOADED
+
+
+def test_time_platform_included_in_platforms():
+    """Platform.TIME must be in PLATFORMS so time.py is forwarded."""
+    from homeassistant.const import Platform
+
+    from custom_components.melitta_barista import PLATFORMS
+
+    assert Platform.TIME in PLATFORMS
