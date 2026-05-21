@@ -114,6 +114,33 @@ def _async_cleanup_legacy_recipe_buttons(
         _LOGGER.info("Cleaned up %d legacy recipe button entities", removed)
 
 
+def _async_check_clock_migration(
+    hass: HomeAssistant, entry: ConfigEntry, address: str,
+) -> None:
+    """Create a repair issue if legacy clock number entities still exist.
+
+    Versions before 0.52.0 exposed CLOCK / CLOCK_SEND as two writable
+    number entities. 0.52.0 replaces them with a single `time` entity
+    and a `sync_clock` service. We surface a repair card so users with
+    existing automations can update them.
+    """
+    from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+    registry = er.async_get(hass)
+    legacy_uids = {f"{address}_setting_20", f"{address}_setting_21"}
+    if not any(ent.unique_id in legacy_uids for ent in registry.entities.values()):
+        return
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        "clock_entity_migration",
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="clock_entity_migration",
+        learn_more_url="https://github.com/dzerik/melitta-ha-integration/blob/main/CHANGELOG.md#0520",
+    )
+
+
 PANEL_URL_PATH = "melitta-barista"
 PANEL_STATIC_PATH = "/melitta_barista/panel"
 
@@ -689,6 +716,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _t0 = _time_perf_counter()
     _async_cleanup_legacy_recipe_buttons(hass, entry, address)
     _LOGGER.debug("[TIMING] %s cleanup_legacy: %.0fms", address, (_time_perf_counter() - _t0) * 1000)
+    _async_check_clock_migration(hass, entry, address)
 
     _t0 = _time_perf_counter()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

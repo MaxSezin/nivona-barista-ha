@@ -75,3 +75,46 @@ def test_setting_definitions_no_longer_include_clock_ids():
     ids = {d["id"] for d in SETTING_DEFINITIONS}
     assert 20 not in ids
     assert 21 not in ids
+
+
+@pytest.mark.asyncio
+async def test_repair_issue_created_for_legacy_clock_entities(hass: HomeAssistant):
+    """If the entity registry has <addr>_setting_20 or _setting_21, raise a repair issue."""
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.helpers import issue_registry as ir
+
+    from custom_components.melitta_barista.const import DOMAIN
+    from custom_components.melitta_barista import _async_check_clock_migration
+
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        domain="number",
+        platform=DOMAIN,
+        unique_id="F1:11:22:33:44:55_setting_20",
+    )
+
+    entry = MagicMock()
+    entry.entry_id = "abc"
+
+    _async_check_clock_migration(hass, entry, "F1:11:22:33:44:55")
+
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, "clock_entity_migration")
+    assert issue is not None
+    assert issue.severity == ir.IssueSeverity.WARNING
+
+
+@pytest.mark.asyncio
+async def test_repair_issue_not_created_on_fresh_install(hass: HomeAssistant):
+    """No legacy unique_id → no repair issue."""
+    from homeassistant.helpers import issue_registry as ir
+
+    from custom_components.melitta_barista.const import DOMAIN
+    from custom_components.melitta_barista import _async_check_clock_migration
+
+    entry = MagicMock()
+    entry.entry_id = "abc"
+
+    _async_check_clock_migration(hass, entry, "F1:11:22:33:44:55")
+
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, "clock_entity_migration")
+    assert issue is None
