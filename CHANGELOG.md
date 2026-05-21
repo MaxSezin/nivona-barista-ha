@@ -2,6 +2,20 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.52.0] — 2026-05-21
+
+### Added
+- New `time.<machine>_clock` entity — display and set the machine RTC directly from HA.
+- New service `melitta_barista.sync_clock` — push HA local time to the machine on demand.
+- Auto-sync coordinator: writes the machine clock on BLE reconnect (with 12 h throttle) and once per day at a configurable time (default 03:17).
+- Options Flow → Advanced: `auto_sync_clock` (toggle), `auto_sync_drift_minutes` (skip threshold), `auto_sync_daily_time` (HH:MM).
+
+### Changed
+- `docs/PROTOCOL.md` clock setting notes filled in with verified semantics.
+
+### Removed (BREAKING)
+- `number.<machine>_clock` and `number.<machine>_clock_send` (introduced in 0.20.0). They were two writable sliders for what is really a read-only / write-only pair. Migration: use the new `time` entity for manual changes, or the `sync_clock` service for automations. A Repair card surfaces on upgrade.
+
 ## [0.51.0] — 2026-05-15 — Pairing recovery — GA
 
 Stable release of the pairing-recovery work that ran through beta.1

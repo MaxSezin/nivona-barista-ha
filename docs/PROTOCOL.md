@@ -460,8 +460,8 @@ Each RecipeType must be paired with the correct RecipeKey when writing via HJ:
 | LANGUAGE | 15 | |
 | AUTO_BEAN_SELECT | 16 | |
 | RINSING_OFF | 18 | |
-| CLOCK | 20 | |
-| CLOCK_SEND | 21 | |
+| CLOCK | 20 | Read-only. Current machine clock as minutes since midnight (0..1439). |
+| CLOCK_SEND | 21 | Write-only. Set machine clock; value = `hour * 60 + minute`. |
 | TEMPERATURE | 22 | |
 | FILTER | 91 | |
 
