@@ -68,6 +68,9 @@ CMD_HANDSHAKE = "HU"
 CMD_READ_FEATURES = "HI"
 CMD_RESET_DEFAULT = "HD"
 CMD_CONFIRM_PROMPT = "HY"
+# HL — read serial number (20-byte ASCII response). Confidence 0.95 from
+# Nivona protocol notes; size matches Melitta's frame registration.
+CMD_READ_SERIAL = "HL"
 
 # Protocol encryption keys
 AES_KEY_PART_B = bytes([

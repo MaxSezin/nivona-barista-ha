@@ -7,6 +7,7 @@ import logging
 import os
 import struct
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -30,6 +31,7 @@ from .const import (
     CMD_READ_FEATURES,
     CMD_READ_NUMERICAL,
     CMD_READ_RECIPE,
+    CMD_READ_SERIAL,
     CMD_READ_STATUS,
     CMD_READ_VERSION,
     CMD_RESET_DEFAULT,
@@ -293,6 +295,9 @@ class EugsterProtocol:
         self._lock = asyncio.Lock()
         self._handshake_done = asyncio.Event()
         self._frame_timeout = frame_timeout
+        # Decoded-frame ring buffer for diagnostics (post-RC4 payloads).
+        # Bounded at 200 entries to keep memory predictable.
+        self._frame_log: deque[dict] = deque(maxlen=200)
         self._init_encryption()
 
     @property
@@ -500,6 +505,26 @@ class EugsterProtocol:
 
     def _dispatch_frame(self, command: str, payload: bytes) -> None:
         """Dispatch parsed frame to handler."""
+        # Record every decoded frame in the ring buffer so the diagnostics
+        # download captures a recent trace. ACK / NACK have empty payloads
+        # and are skipped to keep the buffer focused on data frames.
+        if command not in (CMD_ACK, CMD_NACK) and payload:
+            self._frame_log.append({
+                "ts": time.time(),
+                "cmd": command,
+                "len": len(payload),
+                "hex": payload.hex(),
+            })
+            # Surface a live-greppable line for frames we do not actively
+            # decode (HF / HQ / HP / HL ...). HX / HR / HA etc. are noisy
+            # and already understood, so they stay out of the log unless
+            # the wider HA debug filter is on.
+            if command not in (CMD_READ_STATUS, CMD_HANDSHAKE) and command not in self._frame_futures:
+                _LOGGER.debug(
+                    "[FRAME-UNH] cmd=%s len=%d hex=%s",
+                    command, len(payload), payload.hex(),
+                )
+
         if command == CMD_ACK:
             if self._ack_future and not self._ack_future.done():
                 self._ack_future.set_result(True)
@@ -641,6 +666,19 @@ class EugsterProtocol:
         data = await self.send_and_wait_response(CMD_READ_VERSION, None, write_func)
         if data:
             return data.rstrip(b"\x00").decode("utf-8", errors="replace")
+        return None
+
+    async def read_serial(self, write_func) -> str | None:
+        """Read machine serial number via HL (20-byte ASCII response).
+
+        Empty request payload, response is a 20-byte ASCII string commonly
+        zero-padded. Returns ``None`` if the machine does not answer (some
+        firmwares may not respond to HL even though the frame size is
+        registered).
+        """
+        data = await self.send_and_wait_response(CMD_READ_SERIAL, None, write_func)
+        if data:
+            return data.rstrip(b"\x00").decode("utf-8", errors="replace").strip()
         return None
 
     async def read_features(self, write_func) -> FeatureFlags | None:
