@@ -339,3 +339,64 @@ async def test_trigger_sync_skips_when_disconnected(hass: HomeAssistant):
     )
     await coord._trigger_sync("test", force=False)
     client.read_setting.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_daily_tick_forces_sync_bypassing_throttle(hass: HomeAssistant):
+    """Daily tick triggers sync with force=True."""
+    from custom_components.melitta_barista import ClockSyncCoordinator
+    from custom_components.melitta_barista.const import (
+        CONF_AUTO_SYNC_CLOCK,
+        CONF_AUTO_SYNC_DRIFT_MINUTES,
+        CONF_AUTO_SYNC_DAILY_TIME,
+    )
+
+    client = _client_mock()
+    client.read_setting = AsyncMock(return_value=850)  # zero drift
+    client.write_setting = AsyncMock(return_value=True)
+
+    coord = ClockSyncCoordinator(
+        hass,
+        client,
+        {
+            CONF_AUTO_SYNC_CLOCK: True,
+            CONF_AUTO_SYNC_DRIFT_MINUTES: 30,  # large threshold
+            CONF_AUTO_SYNC_DAILY_TIME: "03:17",
+        },
+    )
+    # Throttle window full
+    from datetime import datetime
+    coord._last_sync = datetime(2026, 5, 21, 14, 9, 0)
+
+    from unittest.mock import patch
+    fake_now = datetime(2026, 5, 21, 14, 10, 0)
+    with patch("custom_components.melitta_barista.dt_util.now", return_value=fake_now):
+        coord._on_daily_tick(fake_now)
+        await hass.async_block_till_done()
+
+    client.write_setting.assert_awaited_with(21, 850)
+
+
+@pytest.mark.asyncio
+async def test_daily_tick_skips_when_disconnected(hass: HomeAssistant):
+    from custom_components.melitta_barista import ClockSyncCoordinator
+    from custom_components.melitta_barista.const import (
+        CONF_AUTO_SYNC_CLOCK,
+        CONF_AUTO_SYNC_DRIFT_MINUTES,
+        CONF_AUTO_SYNC_DAILY_TIME,
+    )
+
+    client = _client_mock(connected=False)
+    coord = ClockSyncCoordinator(
+        hass,
+        client,
+        {
+            CONF_AUTO_SYNC_CLOCK: True,
+            CONF_AUTO_SYNC_DRIFT_MINUTES: 2,
+            CONF_AUTO_SYNC_DAILY_TIME: "03:17",
+        },
+    )
+    from datetime import datetime
+    coord._on_daily_tick(datetime(2026, 5, 21, 3, 17, 0))
+    await hass.async_block_till_done()
+    client.read_setting.assert_not_awaited()

@@ -265,7 +265,16 @@ class ClockSyncCoordinator:
             return
         self._hass.async_create_task(self._trigger_sync("reconnect", force=False))
 
-    # _on_daily_tick added in later tasks.
+    @callback
+    def _on_daily_tick(self, _now: datetime) -> None:
+        """Scheduled daily tick handler.
+
+        Bypasses throttle and drift threshold (`force=True`) so the
+        machine RTC is guaranteed at least one sync per 24 h even if
+        the BLE connection has been stable and reconnect throttle has
+        suppressed every reconnect sync.
+        """
+        self._hass.async_create_task(self._trigger_sync("daily", force=True))
 
 
 PANEL_URL_PATH = "melitta-barista"
