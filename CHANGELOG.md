@@ -2,6 +2,18 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.53.0] — 2026-05-21
+
+### Added
+- **Serial number sensor** (`sensor.<machine>_serial`) — read once on connect via the `HL` command (20-byte ASCII response). Confidence 0.95 from the Nivona protocol spec; size matches Melitta's frame registration, so the same opcode is expected to work across both brands.
+- **BLE frame log in diagnostics** — `diagnostics.py` now exposes two new sections:
+  - `ble_trace.recent_frames_raw` — last 100 raw notifications (pre-decryption hex preview, captured on every BLE event by `ble_client._on_notification`).
+  - `ble_trace.frame_log_decoded` — last 200 decoded frames (post-RC4 payloads), captured by `protocol._dispatch_frame`. Useful for inspecting `HF` (16 B) / `HQ` (15 B) / `HP` (14 B) — three opcodes whose payload semantics remain unresolved across all public sources.
+- DEBUG log line `[FRAME-UNH] cmd=X len=N hex=...` for any decoded frame the integration does not actively handle (i.e. not `HX`, not `HU`, not a response to a pending request). Activated via the standard HA "Enable debug logging" toggle on the integration page.
+
+### Changed
+- `device.serial` is now included in the diagnostics download.
+
 ## [0.52.0] — 2026-05-21
 
 ### Added
