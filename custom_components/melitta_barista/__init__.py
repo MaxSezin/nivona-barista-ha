@@ -1070,6 +1070,36 @@ BREW_FREESTYLE_SCHEMA = vol.Schema({
 })
 
 
+def _async_resolve_clients_for_service(
+    hass: HomeAssistant, call: "ServiceCall",
+) -> list["MelittaBleClient"]:
+    """Resolve target devices in a ServiceCall to MelittaBleClient objects.
+
+    If the call has ``device_id`` targets, resolve them via the device
+    registry; otherwise return all configured entries' clients
+    (broadcast — useful for a service without explicit targeting).
+    """
+    from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+
+    device_ids = set(call.data.get("device_id", []) or [])
+    clients: list[MelittaBleClient] = []
+    if device_ids:
+        dev_reg = dr.async_get(hass)
+        for did in device_ids:
+            device = dev_reg.async_get(did)
+            if device is None:
+                continue
+            for cfg_entry_id in device.config_entries:
+                entry = hass.config_entries.async_get_entry(cfg_entry_id)
+                if entry and entry.domain == DOMAIN and hasattr(entry, "runtime_data"):
+                    clients.append(entry.runtime_data)
+    else:
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if hasattr(entry, "runtime_data"):
+                clients.append(entry.runtime_data)
+    return clients
+
+
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register integration services (idempotent)."""
     if hass.services.has_service(DOMAIN, SERVICE_BREW_FREESTYLE):
@@ -1352,6 +1382,30 @@ def _async_register_services(hass: HomeAssistant) -> None:
         DOMAIN, SERVICE_REPAIR_CONNECTION, _handle_repair_connection,
     )
 
+    async def _handle_sync_clock(call: ServiceCall) -> None:
+        """Push HA local time to the machine RTC (setting 21)."""
+        clients = _async_resolve_clients_for_service(hass, call)
+        if not clients:
+            raise HomeAssistantError("No Melitta machine configured")
+        now = dt_util.now()
+        minutes = now.hour * 60 + now.minute
+        any_fail = False
+        for client in clients:
+            if not client.connected:
+                raise HomeAssistantError(
+                    f"Machine {client.address} not connected",
+                )
+            ok = await client.write_setting(21, minutes)
+            if not ok:
+                any_fail = True
+        if any_fail:
+            raise HomeAssistantError("Clock sync write rejected by machine")
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SYNC_CLOCK):
+        hass.services.async_register(
+            DOMAIN, SERVICE_SYNC_CLOCK, _handle_sync_clock,
+        )
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
@@ -1391,6 +1445,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 SERVICE_WRITE_RECIPE_PARAM,
                 SERVICE_WRITE_MYCOFFEE_PARAM,
                 SERVICE_REPAIR_CONNECTION,
+                SERVICE_SYNC_CLOCK,
             ):
                 if hass.services.has_service(DOMAIN, service):
                     hass.services.async_remove(DOMAIN, service)

@@ -533,3 +533,12 @@ repair_connection:
     the next advertisement rebuilds it with fresh details and the very
     next pair=True attempt succeeds. Equivalent to the old workaround of
     deleting and re-adding the integration, but preserves entity history.
+
+sync_clock:
+  name: Sync machine clock with Home Assistant time
+  description: >-
+    Push Home Assistant's current local time to the machine's RTC (setting CLOCK_SEND=21).
+    Use this to correct a drifted clock manually, or call it from an automation.
+  target:
+    device:
+      integration: melitta_barista

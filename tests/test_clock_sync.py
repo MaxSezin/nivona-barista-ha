@@ -432,3 +432,54 @@ async def test_coordinator_start_stop_idempotent_pairing(hass: HomeAssistant):
     assert client.remove_connection_callback.call_count == 1
     # helper exists and returns deterministic per-entry key
     assert _async_clock_coordinator_key("abc") == "clock_coordinator_abc"
+
+
+@pytest.mark.asyncio
+async def test_service_sync_clock_writes_now(hass: HomeAssistant):
+    """Calling the service writes HA's current minutes-of-day to setting 21."""
+    from custom_components.melitta_barista.const import DOMAIN, SERVICE_SYNC_CLOCK
+    from custom_components.melitta_barista import _async_register_services
+
+    client = _client_mock()
+    _async_register_services(hass)
+
+    from unittest.mock import patch
+    from datetime import datetime
+    fake_now = datetime(2026, 5, 21, 14, 30, 0)
+
+    call = MagicMock()
+    call.data = {}
+
+    handler = hass.services._services[DOMAIN][SERVICE_SYNC_CLOCK].job.target
+
+    with patch("custom_components.melitta_barista.dt_util.now", return_value=fake_now), \
+         patch("custom_components.melitta_barista._async_resolve_clients_for_service",
+               return_value=[client]):
+        await handler(call)
+
+    client.write_setting.assert_awaited_with(21, 870)
+
+
+@pytest.mark.asyncio
+async def test_service_sync_clock_raises_when_disconnected(hass: HomeAssistant):
+    """Disconnected → HomeAssistantError, no write attempted."""
+    from homeassistant.exceptions import HomeAssistantError
+
+    from custom_components.melitta_barista.const import DOMAIN, SERVICE_SYNC_CLOCK
+    from custom_components.melitta_barista import _async_register_services
+
+    _async_register_services(hass)
+
+    client = _client_mock(connected=False)
+    call = MagicMock()
+    call.data = {}
+
+    handler = hass.services._services[DOMAIN][SERVICE_SYNC_CLOCK].job.target
+
+    from unittest.mock import patch
+    with patch("custom_components.melitta_barista._async_resolve_clients_for_service",
+               return_value=[client]):
+        with pytest.raises(HomeAssistantError):
+            await handler(call)
+
+    client.write_setting.assert_not_awaited()
