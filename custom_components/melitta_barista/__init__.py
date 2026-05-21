@@ -19,7 +19,7 @@ from homeassistant.components.websocket_api import (
 )
 import voluptuous as vol
 
-import time
+from time import monotonic as _time_monotonic, perf_counter as _time_perf_counter
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -663,9 +663,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ir.async_delete_issue(hass, DOMAIN, issue_id)
             ir.async_delete_issue(hass, DOMAIN, pairing_issue_id)
             return
-        disconnect_times.append(time.monotonic())
+        disconnect_times.append(_time_monotonic())
         # Keep only last hour
-        cutoff = time.monotonic() - 3600
+        cutoff = _time_monotonic() - 3600
         disconnect_times[:] = [t for t in disconnect_times if t > cutoff]
         if len(disconnect_times) >= max_disconnects_per_hour:
             ir.async_create_issue(
@@ -683,39 +683,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Setup-phase timing diagnostics (DEBUG level — enable
     # `logger.melitta_barista: debug` in HA to see them).
-    _t_setup_start = time.perf_counter()
+    _t_setup_start = _time_perf_counter()
 
     # Clean up legacy per-recipe button entities (v0.5.x → v0.6.0 migration)
-    _t0 = time.perf_counter()
+    _t0 = _time_perf_counter()
     _async_cleanup_legacy_recipe_buttons(hass, entry, address)
-    _LOGGER.debug("[TIMING] %s cleanup_legacy: %.0fms", address, (time.perf_counter() - _t0) * 1000)
+    _LOGGER.debug("[TIMING] %s cleanup_legacy: %.0fms", address, (_time_perf_counter() - _t0) * 1000)
 
-    _t0 = time.perf_counter()
+    _t0 = _time_perf_counter()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _LOGGER.debug(
         "[TIMING] %s forward_entry_setups: %.0fms",
-        address, (time.perf_counter() - _t0) * 1000,
+        address, (_time_perf_counter() - _t0) * 1000,
     )
 
     # Register freestyle service (once per integration)
-    _t0 = time.perf_counter()
+    _t0 = _time_perf_counter()
     _async_register_services(hass)
-    _LOGGER.debug("[TIMING] %s register_services: %.0fms", address, (time.perf_counter() - _t0) * 1000)
+    _LOGGER.debug("[TIMING] %s register_services: %.0fms", address, (_time_perf_counter() - _t0) * 1000)
 
     # Register AI Coffee Sommelier WebSocket handlers (DB init is lazy on first call)
-    _t0 = time.perf_counter()
+    _t0 = _time_perf_counter()
     _async_register_sommelier(hass)
-    _LOGGER.debug("[TIMING] %s register_sommelier: %.0fms", address, (time.perf_counter() - _t0) * 1000)
+    _LOGGER.debug("[TIMING] %s register_sommelier: %.0fms", address, (_time_perf_counter() - _t0) * 1000)
 
     # Register admin panel (sidebar entry + static assets) and its bootstrap
     # WS handler. Both are idempotent — repeat calls when a second config
     # entry is added do nothing.
-    _t0 = time.perf_counter()
+    _t0 = _time_perf_counter()
     _async_register_panel_websocket(hass)
     from .panel_api import async_register_panel_websocket as _register_panel_api  # noqa: PLC0415
     _register_panel_api(hass)
     await _async_register_panel(hass)
-    _LOGGER.debug("[TIMING] %s register_panel: %.0fms", address, (time.perf_counter() - _t0) * 1000)
+    _LOGGER.debug("[TIMING] %s register_panel: %.0fms", address, (_time_perf_counter() - _t0) * 1000)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
@@ -744,7 +744,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(_cancel_connect_task)
     _LOGGER.debug(
         "[TIMING] %s async_setup_entry TOTAL: %.0fms",
-        address, (time.perf_counter() - _t_setup_start) * 1000,
+        address, (_time_perf_counter() - _t_setup_start) * 1000,
     )
     _LOGGER.info("Setup complete for %s, connecting in background", address)
 
