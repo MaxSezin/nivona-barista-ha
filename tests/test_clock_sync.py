@@ -51,3 +51,18 @@ async def test_time_entity_read_value_on_connect():
 
     client.read_setting.assert_awaited_once_with(20)
     assert entity.native_value == dt_time(hour=14, minute=30)
+
+
+@pytest.mark.asyncio
+async def test_time_entity_write_calls_setting_21():
+    """async_set_value(time(14, 30)) writes 870 to setting 21."""
+    client = _client_mock()
+    entry = MagicMock()
+    entity = MelittaClockEntity(client, entry, "Melitta Barista")
+    entity.hass = MagicMock(spec=HomeAssistant)
+    entity.async_write_ha_state = MagicMock()
+
+    await entity.async_set_value(dt_time(hour=14, minute=30))
+
+    client.write_setting.assert_awaited_once_with(21, 870)
+    assert entity.native_value == dt_time(hour=14, minute=30)

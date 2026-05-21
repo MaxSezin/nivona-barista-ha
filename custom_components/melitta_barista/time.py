@@ -89,3 +89,13 @@ class MelittaClockEntity(MelittaDeviceMixin, TimeEntity):
         minutes = int(value) % 1440
         self._attr_native_value = dt_time(hour=minutes // 60, minute=minutes % 60)
         self.async_write_ha_state()
+
+    async def async_set_value(self, value: dt_time) -> None:
+        """Write the picked time to the machine RTC (setting 21)."""
+        minutes = value.hour * 60 + value.minute
+        ok = await self._client.write_setting(_CLOCK_WRITE_ID, minutes)
+        if ok:
+            self._attr_native_value = dt_time(hour=value.hour, minute=value.minute)
+            self.async_write_ha_state()
+        else:
+            _LOGGER.warning("Clock write rejected by machine (NACK)")
