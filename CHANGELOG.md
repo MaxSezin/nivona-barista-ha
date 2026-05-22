@@ -2,6 +2,11 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.53.2] — 2026-05-22
+
+### Fixed
+- **Recorder warning + DB bloat from oversized select attributes** (#13). The Profile select exposes the full DirectKey recipe table (`directkey_recipes`) and the Recipe select the full base-recipe table (`recipes`) live for the companion card/app — but these exceed the recorder's 16 KB per-state attribute cap, triggering `State attributes ... exceed maximum size` warnings and DB performance degradation. Both bulk attributes are now marked `_unrecorded_attributes`, so the recorder skips them while the live state attribute is preserved — the card and app keep working unchanged, and the small per-recipe / `active_profile` fields stay in history.
+
 ## [0.53.1] — 2026-05-22
 
 ### Fixed
