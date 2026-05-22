@@ -121,3 +121,17 @@ async def test_recipe_select_option(
 
     state = hass.states.get(recipe_select.entity_id)
     assert state.state == "Espresso"
+
+
+def test_recipe_select_marks_recipes_unrecorded() -> None:
+    """The bulk recipe table must be excluded from the recorder (#13)."""
+    from custom_components.melitta_barista.select import MelittaRecipeSelect
+
+    assert "recipes" in MelittaRecipeSelect._unrecorded_attributes
+
+
+def test_profile_select_marks_directkey_unrecorded() -> None:
+    """The DirectKey recipe table must be excluded from the recorder (#13)."""
+    from custom_components.melitta_barista.select import MelittaProfileSelect
+
+    assert "directkey_recipes" in MelittaProfileSelect._unrecorded_attributes

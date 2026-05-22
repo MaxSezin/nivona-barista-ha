@@ -170,6 +170,9 @@ class MelittaRecipeSelect(MelittaDeviceMixin, SelectEntity):
     _attr_has_entity_name = True
     _attr_name = "Recipe"
     _attr_icon = "mdi:coffee-maker-outline"
+    # The full recipe table is exposed live for the card/app but is too large
+    # for the recorder's 16 KB attribute cap. Keep it out of history (#13).
+    _unrecorded_attributes = frozenset({"recipes"})
 
     def __init__(
         self,
@@ -279,6 +282,10 @@ class MelittaProfileSelect(MelittaDeviceMixin, SelectEntity):
     _attr_has_entity_name = True
     _attr_name = "Profile"
     _attr_icon = "mdi:account-circle"
+    # The DirectKey recipe table (8 profiles × 7 categories) is exposed live
+    # for the card/app but blows past the recorder's 16 KB attribute cap.
+    # Keep it out of history (#13).
+    _unrecorded_attributes = frozenset({"directkey_recipes"})
 
     def __init__(
         self,
