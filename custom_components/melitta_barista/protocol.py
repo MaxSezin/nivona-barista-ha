@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from .brands.base import BrandProfile
 from dataclasses import dataclass, field
 
-from Crypto.Cipher import AES  # nosec B413 — pycryptodome (actively maintained fork)
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from .const import (
     AES_IV,
@@ -69,8 +69,8 @@ KNOWN_COMMANDS: dict[str, tuple[int, bool]] = {
 def _derive_rc4_key() -> bytes:
     """Derive RC4 key by decrypting the hardcoded AES blob."""
     aes_key = AES_KEY_PART_B + AES_KEY_PART_A
-    cipher = AES.new(aes_key, AES.MODE_CBC, iv=AES_IV)
-    decrypted = cipher.decrypt(ENCRYPTED_RC4_KEY)
+    decryptor = Cipher(algorithms.AES(aes_key), modes.CBC(AES_IV)).decryptor()
+    decrypted = decryptor.update(ENCRYPTED_RC4_KEY) + decryptor.finalize()
     # Remove PKCS5 padding
     pad_len = decrypted[-1]
     if 1 <= pad_len <= 16 and all(b == pad_len for b in decrypted[-pad_len:]):

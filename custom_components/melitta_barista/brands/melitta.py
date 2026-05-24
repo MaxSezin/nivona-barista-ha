@@ -16,7 +16,7 @@ import logging
 import re
 from typing import ClassVar
 
-from Crypto.Cipher import AES
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from .base import MachineCapabilities
 
@@ -54,8 +54,8 @@ _ENCRYPTED_RC4_KEY = bytes([
 def _derive_rc4_key() -> bytes:
     """Decrypt the embedded RC4 stream key using the Melitta AES wrapper."""
     aes_key = _AES_KEY_PART_B + _AES_KEY_PART_A
-    cipher = AES.new(aes_key, AES.MODE_CBC, iv=_AES_IV)
-    decrypted = cipher.decrypt(_ENCRYPTED_RC4_KEY)
+    decryptor = Cipher(algorithms.AES(aes_key), modes.CBC(_AES_IV)).decryptor()
+    decrypted = decryptor.update(_ENCRYPTED_RC4_KEY) + decryptor.finalize()
     pad_len = decrypted[-1]
     if 1 <= pad_len <= 16 and all(b == pad_len for b in decrypted[-pad_len:]):
         decrypted = decrypted[:-pad_len]
@@ -150,7 +150,7 @@ class MelittaProfile:
     families: ClassVar[dict[str, MachineCapabilities]] = _MELITTA_FAMILIES
 
     # Lazily computed on first access — RC4 key derivation is cheap but
-    # touching pycryptodome at import time keeps test isolation cleaner.
+    # deferring it keeps test isolation cleaner.
     _rc4_key_cache: bytes | None = None
 
     @property
