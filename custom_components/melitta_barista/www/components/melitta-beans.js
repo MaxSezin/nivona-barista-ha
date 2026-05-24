@@ -608,7 +608,10 @@ class MelittaBeans extends LitElement {
           </fieldset>
 
           ${this._autofillVia ? html`
-            <div class="via-label">via: <code>${this._autofillVia}</code></div>
+            <details class="via-details">
+              <summary>${this._t("beans.autofill.debug")}</summary>
+              <div class="via-label">via: <code>${this._autofillVia}</code></div>
+            </details>
           ` : ""}
           ${this._autofillErrors && this._autofillErrors.length ? html`
             <div class="validation-errors">
@@ -893,6 +896,11 @@ class MelittaBeans extends LitElement {
         background: var(--primary-background-color);
         padding: 1px 4px;
         border-radius: 3px;
+      }
+      .via-details summary {
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        cursor: pointer;
       }
       .validation-errors {
         background: var(--warning-color, #ff9800);
