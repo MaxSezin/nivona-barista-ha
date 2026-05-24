@@ -427,8 +427,10 @@ async def _ws_producers_update(hass, connection, msg):
         connection.send_error(msg["id"], "no_fields", "No fields to update")
         return
     set_clause = ", ".join(f"{k} = ?" for k in fields)
+    # Column names come from a whitelist literal on line 425; values
+    # are bound via `?` placeholders — no user-controlled SQL fragment.
     await db._db.execute(
-        f"UPDATE producers SET {set_clause} WHERE id = ?",
+        f"UPDATE producers SET {set_clause} WHERE id = ?",  # nosec B608
         (*fields.values(), msg["producer_id"]),
     )
     await db._db.commit()
@@ -687,8 +689,10 @@ def _make_additive_handlers(table: str):
     async def _ws_list(hass, connection, msg):
         """List rows from an additive table (syrups / toppings)."""
         db = await _async_get_db(hass)
+        # `table` is bound at handler-factory call time to a literal
+        # string ("syrups" / "toppings"), never user input.
         cursor = await db._db.execute(
-            f"SELECT id, name, brand, notes FROM {table} ORDER BY name"
+            f"SELECT id, name, brand, notes FROM {table} ORDER BY name"  # nosec B608
         )
         rows = await cursor.fetchall()
         connection.send_result(msg["id"], {
@@ -710,7 +714,7 @@ def _make_additive_handlers(table: str):
         """Insert a row into an additive table; returns new id."""
         db = await _async_get_db(hass)
         cursor = await db._db.execute(
-            f"INSERT INTO {table} (name, brand, notes, created_at) VALUES (?, ?, ?, ?)",
+            f"INSERT INTO {table} (name, brand, notes, created_at) VALUES (?, ?, ?, ?)",  # nosec B608
             (msg["name"], msg.get("brand"), msg.get("notes"), _now_iso()),
         )
         await db._db.commit()
@@ -726,7 +730,7 @@ def _make_additive_handlers(table: str):
     async def _ws_delete(hass, connection, msg):
         """Delete an additive row by `additive_id`."""
         db = await _async_get_db(hass)
-        await db._db.execute(f"DELETE FROM {table} WHERE id = ?", (msg["additive_id"],))
+        await db._db.execute(f"DELETE FROM {table} WHERE id = ?", (msg["additive_id"],))  # nosec B608
         await db._db.commit()
         connection.send_result(msg["id"], {"deleted": True})
 
@@ -758,8 +762,10 @@ def _make_additive_update_handler(table: str):
             connection.send_error(msg["id"], "no_fields", "No fields to update")
             return
         set_clause = ", ".join(f"{k} = ?" for k in fields)
+        # Column names come from a whitelist literal on line 756; `table`
+        # is a closure-captured literal — no user SQL fragment.
         await db._db.execute(
-            f"UPDATE {table} SET {set_clause} WHERE id = ?",
+            f"UPDATE {table} SET {set_clause} WHERE id = ?",  # nosec B608
             (*fields.values(), msg["additive_id"]),
         )
         await db._db.commit()

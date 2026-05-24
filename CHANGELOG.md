@@ -2,6 +2,14 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.53.4] — 2026-05-24
+
+### Changed
+- **Migrated AES from `pycryptodome` to `cryptography` (pyca).** Both AES-CBC call sites (`protocol._derive_rc4_key`, `brands/melitta._derive_rc4_key`) now use `cryptography.hazmat.primitives.ciphers`. Ciphertext bytes are bit-identical to the previous implementation (verified against the pycryptodome reference). Dependency change: `pycryptodome>=3.0.0` → `cryptography>=41.0.0`. `cryptography` is already a transitive dependency of Home Assistant core, so installed footprint shrinks slightly.
+
+### Fixed
+- **Bandit `B413` and 5×`B608` warnings.** B413 (PyCrypto deprecation) is now moot after the cryptography migration. B608 (SQL injection) findings on `panel_api.py` were false positives — column names come from a literal whitelist in the same function, and `{table}` is a closure-captured string literal (`"producers"`, `"syrups"`, `"toppings"`). Annotated with `# nosec B608` plus a comment explaining the invariant. The lint job now passes end-to-end.
+
 ## [0.53.3] — 2026-05-24
 
 ### Fixed
