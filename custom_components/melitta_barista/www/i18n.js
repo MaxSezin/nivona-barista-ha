@@ -37,6 +37,9 @@ const STRINGS = {
     "common.unknown": "Unknown",
     "common.never": "Never",
     "common.empty": "Empty",
+    "common.confirm": "Confirm",
+    "confirm.delete.title": "Delete item",
+    "confirm.delete.confirm": "Delete",
 
     "status.title": "Machine status",
     "status.ble_state": "BLE connection",
@@ -265,6 +268,9 @@ const STRINGS = {
     "common.unknown": "—",
     "common.never": "Никогда",
     "common.empty": "Пусто",
+    "common.confirm": "Подтвердить",
+    "confirm.delete.title": "Удалить элемент",
+    "confirm.delete.confirm": "Удалить",
 
     "status.title": "Состояние машины",
     "status.ble_state": "BLE-соединение",
