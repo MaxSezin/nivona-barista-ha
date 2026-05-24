@@ -40,6 +40,27 @@ class MelittaAdditives extends LitElement {
     return t(key, this.lang || "en", params);
   }
 
+  /**
+   * Open <melitta-confirm> and await user decision.
+   * Returns true if the user confirmed, false otherwise.
+   */
+  async _confirmDelete(itemLabel) {
+    let dialog = this.renderRoot.querySelector("melitta-confirm");
+    if (!dialog) {
+      dialog = document.createElement("melitta-confirm");
+      this.renderRoot.appendChild(dialog);
+    }
+    return dialog.ask({
+      title: this._t("confirm.delete.title"),
+      message: itemLabel
+        ? `${this._t("common.delete_confirm")} — ${itemLabel}`
+        : this._t("common.delete_confirm"),
+      confirmLabel: this._t("confirm.delete.confirm"),
+      cancelLabel: this._t("common.cancel"),
+      destructive: true,
+    });
+  }
+
   connectedCallback() {
     super.connectedCallback();
     this._loadAll();
@@ -130,7 +151,10 @@ class MelittaAdditives extends LitElement {
   }
 
   async _delete(type, id) {
-    if (!confirm(this._t("common.delete_confirm"))) return;
+    const list =
+      type === "syrup" ? this._syrups : type === "topping" ? this._toppings : this._milk;
+    const item = list.find((x) => x.id === id);
+    if (!(await this._confirmDelete(item?.name))) return;
     try {
       if (type === "milk") {
         await this.hass.callWS({
