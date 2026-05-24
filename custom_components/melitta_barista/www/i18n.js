@@ -15,13 +15,15 @@ const STRINGS = {
     "panel.title": "Melitta Barista",
     "panel.no_entries": "No coffee machines configured for this integration.",
 
-    "tabs.status": "Status",
-    "tabs.diagnostics": "Diagnostics",
-    "tabs.recipes": "Recipes",
+    "tabs.system": "System",
     "tabs.beans": "Beans",
     "tabs.additives": "Add-ins",
     "tabs.sommelier": "Sommelier",
-    "tabs.settings": "Settings",
+
+    "system.subtabs.status": "Status",
+    "system.subtabs.settings": "Settings",
+    "system.subtabs.diagnostics": "Diagnostics",
+    "system.subtabs.recipes": "Machine recipes",
 
     "common.loading": "Loading…",
     "common.error": "Error",
@@ -250,13 +252,15 @@ const STRINGS = {
     "panel.title": "Melitta Barista",
     "panel.no_entries": "Не найдено ни одной подключённой кофемашины.",
 
-    "tabs.status": "Состояние",
-    "tabs.diagnostics": "Диагностика",
-    "tabs.recipes": "Рецепты",
+    "tabs.system": "Система",
     "tabs.beans": "Зёрна",
     "tabs.additives": "Добавки",
     "tabs.sommelier": "Сомелье",
-    "tabs.settings": "Настройки",
+
+    "system.subtabs.status": "Состояние",
+    "system.subtabs.settings": "Настройки",
+    "system.subtabs.diagnostics": "Диагностика",
+    "system.subtabs.recipes": "Рецепты машины",
 
     "common.loading": "Загрузка…",
     "common.error": "Ошибка",
