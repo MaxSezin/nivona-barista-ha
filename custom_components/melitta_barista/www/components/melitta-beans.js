@@ -84,6 +84,27 @@ class MelittaBeans extends LitElement {
     return t(key, this.lang || "en", params);
   }
 
+  /**
+   * Open <melitta-confirm> and await user decision.
+   * Returns true if the user confirmed, false otherwise.
+   */
+  async _confirmDelete(itemLabel) {
+    let dialog = this.renderRoot.querySelector("melitta-confirm");
+    if (!dialog) {
+      dialog = document.createElement("melitta-confirm");
+      this.renderRoot.appendChild(dialog);
+    }
+    return dialog.ask({
+      title: this._t("confirm.delete.title"),
+      message: itemLabel
+        ? `${this._t("common.delete_confirm")} — ${itemLabel}`
+        : this._t("common.delete_confirm"),
+      confirmLabel: this._t("confirm.delete.confirm"),
+      cancelLabel: this._t("common.cancel"),
+      destructive: true,
+    });
+  }
+
   _emptyBean() {
     return {
       id: null,
@@ -167,7 +188,8 @@ class MelittaBeans extends LitElement {
   }
 
   async _deleteProducer(id) {
-    if (!confirm(this._t("common.delete_confirm"))) return;
+    const producer = this._producers.find((p) => p.id === id);
+    if (!(await this._confirmDelete(producer?.name || null))) return;
     try {
       await this.hass.callWS({
         type: "melitta_barista/producers/delete",
@@ -239,7 +261,8 @@ class MelittaBeans extends LitElement {
   }
 
   async _deleteBean(id) {
-    if (!confirm(this._t("common.delete_confirm"))) return;
+    const bean = this._beans.find((b) => b.id === id);
+    if (!(await this._confirmDelete(bean?.product || null))) return;
     try {
       await this.hass.callWS({
         type: "melitta_barista/sommelier/beans/delete",
