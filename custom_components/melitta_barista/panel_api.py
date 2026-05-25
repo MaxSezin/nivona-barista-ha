@@ -12,9 +12,10 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from typing import Any
+from typing import Any, Literal
 
 import voluptuous as vol
+from pydantic import BaseModel, Field, ValidationError
 
 from homeassistant.components import websocket_api
 from homeassistant.components.websocket_api import async_register_command
@@ -888,107 +889,102 @@ PROMPT_PLACEHOLDERS: dict[str, list[dict[str, str]]] = {
 # purposes: they emit JSON Schema (appended to the prompt verbatim so the LLM
 # sees the exact contract) and they validate the parsed response. When the
 # model rejects the data we retry once with the validation errors as feedback.
-try:
-    from pydantic import BaseModel, Field, ValidationError  # noqa: PLC0415
-    from typing import Literal  # noqa: PLC0415
+class BeanAutofillResult(BaseModel):
+    """Strict schema for the beans autofill LLM response.
 
-    class BeanAutofillResult(BaseModel):
-        """Strict schema for the beans autofill LLM response.
+    `origin_country` and `flavor_notes` are required (no defaults) so
+    the validator surfaces the gap to the user instead of silently
+    accepting incomplete responses. The LLM is told to use the literal
+    string "Unknown" for `origin_country` and an empty array for
+    `flavor_notes` only if it truly has no information — that way the
+    UI can flag the result as low-confidence rather than auto-filling
+    a wrong value.
+    """
 
-        `origin_country` and `flavor_notes` are required (no defaults) so
-        the validator surfaces the gap to the user instead of silently
-        accepting incomplete responses. The LLM is told to use the literal
-        string "Unknown" for `origin_country` and an empty array for
-        `flavor_notes` only if it truly has no information — that way the
-        UI can flag the result as low-confidence rather than auto-filling
-        a wrong value.
-        """
+    roast: Literal["light", "medium", "medium_dark", "dark"]
+    bean_type: Literal["arabica", "arabica_robusta", "robusta"]
+    origin: Literal["single_origin", "blend"]
+    origin_country: str = Field(min_length=1)
+    flavor_notes: list[str] = Field(min_length=1)
+    composition: str = ""
+    brewing_recommendation: str = ""
 
-        roast: Literal["light", "medium", "medium_dark", "dark"]
-        bean_type: Literal["arabica", "arabica_robusta", "robusta"]
-        origin: Literal["single_origin", "blend"]
-        origin_country: str = Field(min_length=1)
-        flavor_notes: list[str] = Field(min_length=1)
-        composition: str = ""
-        brewing_recommendation: str = ""
 
-    class RecipeComponent(BaseModel):
-        """One component of a generated freestyle recipe."""
+class RecipeComponent(BaseModel):
+    """One component of a generated freestyle recipe."""
 
-        process: Literal["coffee", "milk", "water", "none"] = "none"
-        intensity: Literal["very_mild", "mild", "medium", "strong", "very_strong"] = "medium"
-        aroma: Literal["standard", "intense"] = "standard"
-        temperature: Literal["cold", "normal", "high"] = "normal"
-        shots: Literal["none", "one", "two", "three"] = "none"
-        portion_ml: int = Field(default=0, ge=0, le=250)
+    process: Literal["coffee", "milk", "water", "none"] = "none"
+    intensity: Literal["very_mild", "mild", "medium", "strong", "very_strong"] = "medium"
+    aroma: Literal["standard", "intense"] = "standard"
+    temperature: Literal["cold", "normal", "high"] = "normal"
+    shots: Literal["none", "one", "two", "three"] = "none"
+    portion_ml: int = Field(default=0, ge=0, le=250)
 
-    class RecipeExtras(BaseModel):
-        """Optional add-ins suggested by the sommelier."""
 
-        ice: bool = False
-        syrup: str | None = None
-        topping: str | None = None
-        liqueur: str | None = None
-        instruction: str | None = None
+class RecipeExtras(BaseModel):
+    """Optional add-ins suggested by the sommelier."""
 
-    class RecipeStep(BaseModel):
-        """One ordered preparation step with explicit dosage.
+    ice: bool = False
+    syrup: str | None = None
+    topping: str | None = None
+    liqueur: str | None = None
+    instruction: str | None = None
 
-        `action` is a short imperative ("Brew espresso", "Add syrup",
-        "Pour foamed milk"). `ingredient` names what is being added /
-        used. `amount` + `unit` give the dosage (e.g. 15 + "ml", 2 +
-        "scoops"). `notes` carries timing or technique hints. The
-        whole list gives the user a full recipe — what to do after the
-        machine drops its part.
-        """
 
-        order: int = Field(ge=1)
-        action: str = Field(min_length=1)
-        ingredient: str | None = None
-        amount: float | None = None
-        unit: str | None = None
-        notes: str | None = None
+class RecipeStep(BaseModel):
+    """One ordered preparation step with explicit dosage.
 
-    class GeneratedRecipe(BaseModel):
-        """One generated sommelier recipe — what the LLM must return."""
+    `action` is a short imperative ("Brew espresso", "Add syrup",
+    "Pour foamed milk"). `ingredient` names what is being added /
+    used. `amount` + `unit` give the dosage (e.g. 15 + "ml", 2 +
+    "scoops"). `notes` carries timing or technique hints. The
+    whole list gives the user a full recipe — what to do after the
+    machine drops its part.
+    """
 
-        name: str = Field(min_length=1)
-        description: str = ""
-        blend: Literal[0, 1] = 1
-        component1: RecipeComponent
-        component2: RecipeComponent
-        # `steps` is the new full preparation sequence with dosages —
-        # required so the user always sees what to do beyond the
-        # machine portion. `extras` is kept as a quick summary of
-        # add-ins for backwards compat with stored recipes.
-        steps: list[RecipeStep] = Field(min_length=1)
-        extras: RecipeExtras = Field(default_factory=lambda: RecipeExtras())
-        cup_type: str | None = None
-        estimated_caffeine: Literal["none", "low", "medium", "high"] | None = None
-        calories_approx: int | None = Field(default=None, ge=0, le=2000)
+    order: int = Field(ge=1)
+    action: str = Field(min_length=1)
+    ingredient: str | None = None
+    amount: float | None = None
+    unit: str | None = None
+    notes: str | None = None
 
-    class SommelierGenerateResult(BaseModel):
-        """Wrapper enforcing an array of recipes (top-level list isn't a JSON
-        Schema object — wrapping with a `recipes` key keeps responseSchema
-        modes happy on every provider)."""
 
-        recipes: list[GeneratedRecipe] = Field(min_length=1, max_length=5)
+class GeneratedRecipe(BaseModel):
+    """One generated sommelier recipe — what the LLM must return."""
 
-    RESPONSE_MODELS: dict[str, type[BaseModel]] = {
-        "beans_autofill": BeanAutofillResult,
-        "sommelier_intro": SommelierGenerateResult,
-    }
-    _PYDANTIC_OK = True
-except ImportError:  # pragma: no cover — defensive fallback
-    RESPONSE_MODELS = {}
-    ValidationError = Exception  # type: ignore[assignment, misc]
-    _PYDANTIC_OK = False
+    name: str = Field(min_length=1)
+    description: str = ""
+    blend: Literal[0, 1] = 1
+    component1: RecipeComponent
+    component2: RecipeComponent
+    # `steps` is the new full preparation sequence with dosages —
+    # required so the user always sees what to do beyond the
+    # machine portion. `extras` is kept as a quick summary of
+    # add-ins for backwards compat with stored recipes.
+    steps: list[RecipeStep] = Field(min_length=1)
+    extras: RecipeExtras = Field(default_factory=lambda: RecipeExtras())
+    cup_type: str | None = None
+    estimated_caffeine: Literal["none", "low", "medium", "high"] | None = None
+    calories_approx: int | None = Field(default=None, ge=0, le=2000)
+
+
+class SommelierGenerateResult(BaseModel):
+    """Wrapper enforcing an array of recipes (top-level list isn't a JSON
+    Schema object — wrapping with a `recipes` key keeps responseSchema
+    modes happy on every provider)."""
+
+    recipes: list[GeneratedRecipe] = Field(min_length=1, max_length=5)
+
+
+RESPONSE_MODELS: dict[str, type[BaseModel]] = {
+    "beans_autofill": BeanAutofillResult,
+    "sommelier_intro": SommelierGenerateResult,
+}
 
 
 def _schema_for(slot: str) -> dict | None:
     """Return the JSON-Schema dict for a slot, or None if no model is defined."""
-    if not _PYDANTIC_OK:
-        return None
     model = RESPONSE_MODELS.get(slot)
     return model.model_json_schema() if model else None
 
@@ -1056,7 +1052,7 @@ def _validate_parsed(slot: str, data: dict) -> tuple[dict | None, list | None]:
     Returns (validated_dict, None) on success, (None, errors) on failure.
     Slots without a registered model accept whatever was parsed.
     """
-    if not _PYDANTIC_OK or slot not in RESPONSE_MODELS:
+    if slot not in RESPONSE_MODELS:
         return data, None
     try:
         validated = RESPONSE_MODELS[slot].model_validate(data)
