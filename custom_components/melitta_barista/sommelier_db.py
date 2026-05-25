@@ -662,9 +662,14 @@ class SommelierDB:
         await self.db.commit()
 
     async def async_get_recipe(self, recipe_id: str) -> dict[str, Any] | None:
-        """Get a single generated recipe by ID."""
+        """Get a single generated recipe by ID, enriched with rating + note."""
         cursor = await self.db.execute(
-            "SELECT * FROM generated_recipes WHERE id = ?", (recipe_id,)
+            """SELECT gr.*, r.rating AS rating, r.note AS note
+                 FROM generated_recipes gr
+                 LEFT JOIN recipe_ratings r
+                   ON r.target_id = gr.id AND r.target_type = 'generated'
+                WHERE gr.id = ?""",
+            (recipe_id,),
         )
         row = await cursor.fetchone()
         if row is None:
@@ -692,8 +697,12 @@ class SommelierDB:
             sess = _row_to_dict(sess_row)
             sess["milk_types"] = json.loads(sess["milk_types"]) if sess["milk_types"] else []
             recipe_cursor = await self.db.execute(
-                """SELECT * FROM generated_recipes
-                   WHERE session_id = ? ORDER BY created_at""",
+                """SELECT gr.*, rt.rating AS rating, rt.note AS note
+                     FROM generated_recipes gr
+                     LEFT JOIN recipe_ratings rt
+                       ON rt.target_id = gr.id AND rt.target_type = 'generated'
+                    WHERE gr.session_id = ?
+                    ORDER BY gr.created_at""",
                 (sess["id"],),
             )
             sess["recipes"] = []
@@ -737,9 +746,17 @@ class SommelierDB:
     # ── Favorites ─────────────────────────────────────────────────────
 
     async def async_list_favorites(self) -> list[dict[str, Any]]:
-        """List all favorites, most brewed first."""
+        """List all favorites, most brewed first.
+
+        Each row is enriched with ``rating`` (1..5 or None) and ``note`` (str
+        or None) via LEFT JOIN on ``recipe_ratings`` (target_type='favorite').
+        """
         cursor = await self.db.execute(
-            "SELECT * FROM favorites ORDER BY brew_count DESC, created_at DESC"
+            """SELECT f.*, r.rating AS rating, r.note AS note
+                 FROM favorites f
+                 LEFT JOIN recipe_ratings r
+                   ON r.target_id = f.id AND r.target_type = 'favorite'
+                ORDER BY f.brew_count DESC, f.created_at DESC"""
         )
         result = []
         for row in await cursor.fetchall():
@@ -799,9 +816,14 @@ class SommelierDB:
         return await self.async_get_favorite(fav_id)  # type: ignore[return-value]
 
     async def async_get_favorite(self, fav_id: str) -> dict[str, Any] | None:
-        """Get a single favorite by ID."""
+        """Get a single favorite by ID, enriched with rating + note."""
         cursor = await self.db.execute(
-            "SELECT * FROM favorites WHERE id = ?", (fav_id,)
+            """SELECT f.*, r.rating AS rating, r.note AS note
+                 FROM favorites f
+                 LEFT JOIN recipe_ratings r
+                   ON r.target_id = f.id AND r.target_type = 'favorite'
+                WHERE f.id = ?""",
+            (fav_id,),
         )
         row = await cursor.fetchone()
         if row is None:

@@ -154,4 +154,91 @@ async def test_migration_from_v5_adds_recipe_ratings():
         await db.async_set_rating("b1", "generated", 4, None)
         assert (await db.async_get_rating("b1", "generated"))["rating"] == 4
 
+
+# ── List endpoint enrichment (P3a Task 5) ─────────────────────────────
+
+
+def _sommelier_recipe(name: str = "X") -> dict:
+    """Minimal v5-shape recipe acceptable to async_add_favorite / async_create_session."""
+    return {
+        "name": name,
+        "description": "",
+        "blend": 1,
+        "machine_phases": [
+            {"component": {"process": "coffee", "portion_ml": 40}, "user_action_before": []}
+        ],
+        "steps": [],
+    }
+
+
+def _create_session_kwargs(recipes: list[dict]) -> dict:
+    """Minimal kwargs for async_create_session."""
+    return {
+        "mode": "surprise_me",
+        "preference": None,
+        "hopper1_bean_id": None,
+        "hopper2_bean_id": None,
+        "milk_types": [],
+        "llm_agent": None,
+        "recipes": recipes,
+    }
+
+
+@pytest.mark.asyncio
+async def test_list_favorites_includes_rating():
+    """Favorites list includes rating + note via JOIN when present."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db = SommelierDB(str(Path(tmpdir) / "test.db"))
+        await db.async_setup()
+
+        added = await db.async_add_favorite(_sommelier_recipe())
+        fav_id = added["id"] if isinstance(added, dict) else added
+        await db.async_set_rating(fav_id, "favorite", 4, "Tastes good")
+
+        favs = await db.async_list_favorites()
+        assert len(favs) == 1
+        assert favs[0]["rating"] == 4
+        assert favs[0]["note"] == "Tastes good"
+
+        await db.async_close()
+
+
+@pytest.mark.asyncio
+async def test_list_favorites_rating_none_when_absent():
+    """Favorites without ratings still appear, with rating=None and note=None."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db = SommelierDB(str(Path(tmpdir) / "test.db"))
+        await db.async_setup()
+
+        await db.async_add_favorite(_sommelier_recipe())
+        favs = await db.async_list_favorites()
+        assert len(favs) == 1
+        assert favs[0]["rating"] is None
+        assert favs[0]["note"] is None
+
+        await db.async_close()
+
+
+@pytest.mark.asyncio
+async def test_list_history_includes_rating_per_recipe():
+    """Each recipe in a history session carries its own rating + note."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db = SommelierDB(str(Path(tmpdir) / "test.db"))
+        await db.async_setup()
+
+        session = await db.async_create_session(
+            **_create_session_kwargs([_sommelier_recipe()])
+        )
+        recipe_id = session["recipes"][0]["id"]
+        await db.async_set_rating(recipe_id, "generated", 3, "OK")
+
+        history = await db.async_list_history()
+        assert len(history) == 1
+        recipes = history[0]["recipes"]
+        assert len(recipes) == 1
+        assert recipes[0]["rating"] == 3
+        assert recipes[0]["note"] == "OK"
+
+        await db.async_close()
+
         await db.async_close()
