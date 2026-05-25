@@ -473,6 +473,10 @@ async def ws_milk_set(
         # B7 — per-request override of the conversation agent. Wins over
         # settings.llm_agent_id (see `_resolve_agent_id` in panel_api).
         vol.Optional("agent_id"): cv.string,
+        # R4/Task 5 — explicit config entry to scope LiveCapabilities lookup.
+        # Defaults to the first config entry when omitted (single-machine
+        # case). Multi-machine support will use this field.
+        vol.Optional("entry_id"): cv.string,
     }
 )
 @websocket_api.require_admin
@@ -599,6 +603,34 @@ async def ws_generate(
         intro = None
         from .ai_recipes import _validate_recipes  # noqa: PLC0415
 
+    # Fetch LiveCapabilities so the prompt enumerates only this machine's
+    # supported processes/intensities/etc. Cache hit -> use it; cache
+    # miss -> derive live from runtime_data; both-fail -> caps=None
+    # (fallback to legacy universal block).
+    caps = None
+    target_entry_id = msg.get("entry_id")
+    if target_entry_id is None:
+        # B1+X2 deferred: take the first config entry as today.
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if entries:
+            target_entry_id = entries[0].entry_id
+    if target_entry_id is not None:
+        row = await db.async_get_capabilities(target_entry_id)
+        if row is not None:
+            try:
+                from .capabilities import LiveCapabilities  # noqa: PLC0415
+                caps = LiveCapabilities.from_json(row["json_payload"])
+            except Exception:  # noqa: BLE001 — corrupt cache, fall through
+                caps = None
+        if caps is None:
+            entry = hass.config_entries.async_get_entry(target_entry_id)
+            if entry is not None and getattr(entry, "runtime_data", None) is not None:
+                try:
+                    from .capabilities import derive_capabilities  # noqa: PLC0415
+                    caps = derive_capabilities(entry.runtime_data)
+                except ValueError:
+                    caps = None
+
     # Build intro+context (without the legacy ## Output Format text block —
     # the JSON Schema is auto-appended by _structured_call instead).
     prebuilt_prompt = _build_prompt(
@@ -627,6 +659,7 @@ async def ws_generate(
         # back to English if HA's language is unset for some reason.
         language=hass.config.language or "en",
         omit_output_format=True,
+        caps=caps,
     )
 
     try:

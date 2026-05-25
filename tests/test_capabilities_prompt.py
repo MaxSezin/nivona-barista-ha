@@ -108,3 +108,99 @@ def test_build_prompt_with_caps_uses_per_process_portion_range():
     caps_section = prompt.split("## Machine Capabilities")[1].split("##")[0]
     assert "10" in caps_section
     assert "180" in caps_section
+
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import json
+from custom_components.melitta_barista import sommelier_api as sa
+
+
+@pytest.mark.asyncio
+async def test_ws_generate_passes_caps_from_db_cache_to_build_prompt():
+    """ws_generate fetches caps from sommelier_db and threads them into _build_prompt."""
+    captured = {}
+
+    def _spy_build_prompt(**kwargs):
+        captured.update(kwargs)
+        return "STUB_PROMPT"
+
+    async def _fake_structured_call(hass, **kwargs):
+        # ws_generate expects a dict-like with .get("parsed") -> {"recipes": [...]}.
+        # We return no recipes to short-circuit before session creation; the
+        # spy on _build_prompt will already have fired by then.
+        return {"parsed": {"recipes": []}, "validation_errors": []}
+
+    cached_caps_json = json.dumps({
+        "schema_version": 1,
+        "family_key": "test_family",
+        "model_name": "Test Machine",
+        "supported_processes": ["coffee"],
+        "supported_intensities": ["medium"],
+        "supported_aromas": ["standard"],
+        "supported_temperatures": ["normal"],
+        "supported_shots": ["one"],
+        "portion_limits": {"coffee": {"min": 5, "max": 200, "step": 5}},
+        "forbidden_combinations": [],
+    })
+
+    db = MagicMock()
+    # ws_generate does `hoppers.get("hopper1", {}).get("bean")`, so empty dicts
+    # (not None) are required for the .get chain to short-circuit cleanly.
+    db.async_get_hoppers = AsyncMock(return_value={"hopper1": {}, "hopper2": {}})
+    db.async_get_milk = AsyncMock(return_value=[])
+    db.async_get_extras = AsyncMock(return_value={"syrups": [], "toppings": [], "liqueurs": [], "misc": []})
+    db.async_get_active_profile = AsyncMock(return_value=None)
+    db.async_get_settings = AsyncMock(return_value={"llm_agent_id": None})
+    db.async_get_preferences = AsyncMock(return_value={})
+    db.async_create_session = AsyncMock(return_value=MagicMock(id="sess1"))
+    db.async_get_panel_prompt = AsyncMock(return_value=None)
+    db.async_get_capabilities = AsyncMock(return_value={
+        "entry_id": "entry_target",
+        "json_payload": cached_caps_json,
+        "probed_at": "2026-05-25T00:00:00+00:00",
+        "schema_version": 1,
+    })
+
+    fake_entry = MagicMock()
+    fake_entry.entry_id = "entry_target"
+
+    hass = MagicMock()
+    hass.data = {"melitta_barista": {"sommelier_db": db}}
+    hass.config = MagicMock()
+    hass.config.language = "en"
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_entries = MagicMock(return_value=[fake_entry])
+    hass.config_entries.async_get_entry = MagicMock(return_value=fake_entry)
+    hass.states = MagicMock()
+    hass.states.async_all = MagicMock(return_value=[])
+
+    connection = MagicMock()
+    connection.context = MagicMock(return_value=None)
+    connection.send_result = MagicMock()
+    connection.send_error = MagicMock()
+
+    # ws_generate is wrapped by both @websocket_command and @require_admin
+    # and @async_response. Use inspect.unwrap to peel back to the actual
+    # async coroutine function so we can call it directly.
+    import inspect
+    ws_generate = inspect.unwrap(sa.ws_generate)
+
+    msg = {
+        "id": 1,
+        "type": "melitta_barista/sommelier/generate",
+        "mode": "surprise_me",
+        "count": 3,
+    }
+
+    # Note: ws_generate does local `from .panel_api import _structured_call`
+    # and `from .ai_recipes import _build_prompt` inside the function body,
+    # so we must patch them at their source modules (not at sommelier_api).
+    with patch("custom_components.melitta_barista.panel_api._structured_call", new=_fake_structured_call), \
+         patch("custom_components.melitta_barista.ai_recipes._build_prompt", side_effect=_spy_build_prompt):
+        await ws_generate(hass, connection, msg)
+
+    caps_passed = captured.get("caps")
+    assert caps_passed is not None, f"caps was not passed to _build_prompt; got kwargs={list(captured.keys())}"
+    assert caps_passed.family_key == "test_family"
+    assert "coffee" in caps_passed.supported_processes
