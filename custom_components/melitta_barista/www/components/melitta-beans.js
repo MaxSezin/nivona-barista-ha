@@ -15,6 +15,7 @@
 
 import { LitElement, html, css } from "../lit-base.js";
 import { t } from "../i18n.js";
+import "./melitta-confirm.js";
 
 const ROASTS = ["light", "medium", "medium_dark", "dark"];
 const BEAN_TYPES = ["arabica", "arabica_robusta", "robusta"];
@@ -82,6 +83,27 @@ class MelittaBeans extends LitElement {
 
   _t(key, params) {
     return t(key, this.lang || "en", params);
+  }
+
+  /**
+   * Open <melitta-confirm> and await user decision.
+   * Returns true if the user confirmed, false otherwise.
+   */
+  async _confirmDelete(itemLabel) {
+    let dialog = this.renderRoot.querySelector("melitta-confirm");
+    if (!dialog) {
+      dialog = document.createElement("melitta-confirm");
+      this.renderRoot.appendChild(dialog);
+    }
+    return dialog.ask({
+      title: this._t("confirm.delete.title"),
+      message: itemLabel
+        ? `${this._t("common.delete_confirm")} — ${itemLabel}`
+        : this._t("common.delete_confirm"),
+      confirmLabel: this._t("confirm.delete.confirm"),
+      cancelLabel: this._t("common.cancel"),
+      destructive: true,
+    });
   }
 
   _emptyBean() {
@@ -167,7 +189,8 @@ class MelittaBeans extends LitElement {
   }
 
   async _deleteProducer(id) {
-    if (!confirm(this._t("common.delete_confirm"))) return;
+    const producer = this._producers.find((p) => p.id === id);
+    if (!(await this._confirmDelete(producer?.name || null))) return;
     try {
       await this.hass.callWS({
         type: "melitta_barista/producers/delete",
@@ -239,7 +262,8 @@ class MelittaBeans extends LitElement {
   }
 
   async _deleteBean(id) {
-    if (!confirm(this._t("common.delete_confirm"))) return;
+    const bean = this._beans.find((b) => b.id === id);
+    if (!(await this._confirmDelete(bean?.product || null))) return;
     try {
       await this.hass.callWS({
         type: "melitta_barista/sommelier/beans/delete",
@@ -367,16 +391,17 @@ class MelittaBeans extends LitElement {
       const actual = this._hoppers[`hopper${hopperInt}`];
       const actualBeanId = actual?.bean?.id || null;
       if (actualBeanId === cleanBeanId) {
-        this._flash(`✓ Бункер ${hopperInt}: ${beanLabel}`);
+        this._flash(this._t("beans.hopper.assigned", { hopper: hopperInt, bean: beanLabel }));
         this._error = "";
       } else {
-        this._error =
-          `Сохранение не подтверждено: WS вернул OK, но после обновления` +
-          ` в бункере ${hopperInt} лежит "${actualBeanId || "—"}" вместо` +
-          ` "${cleanBeanId || "—"}". Проверь логи HA.`;
+        this._error = this._t("beans.hopper.mismatch", {
+          hopper: hopperInt,
+          actual: actualBeanId || "—",
+          expected: cleanBeanId || "—",
+        });
       }
     } catch (e) {
-      this._error = `Назначение в бункер ${hopperInt} провалилось: ${e.message || e}`;
+      this._error = this._t("beans.hopper.failed", { hopper: hopperInt, error: e.message || e });
       // eslint-disable-next-line no-console
       console.error("[melitta-panel] hopper assign error:", e);
     }
@@ -584,7 +609,10 @@ class MelittaBeans extends LitElement {
           </fieldset>
 
           ${this._autofillVia ? html`
-            <div class="via-label">via: <code>${this._autofillVia}</code></div>
+            <details class="via-details">
+              <summary>${this._t("beans.autofill.debug")}</summary>
+              <div class="via-label">via: <code>${this._autofillVia}</code></div>
+            </details>
           ` : ""}
           ${this._autofillErrors && this._autofillErrors.length ? html`
             <div class="validation-errors">
@@ -869,6 +897,11 @@ class MelittaBeans extends LitElement {
         background: var(--primary-background-color);
         padding: 1px 4px;
         border-radius: 3px;
+      }
+      .via-details summary {
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        cursor: pointer;
       }
       .validation-errors {
         background: var(--warning-color, #ff9800);

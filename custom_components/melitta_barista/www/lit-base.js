@@ -13,6 +13,20 @@
  * Теперь: статический vendored bundle `vendor/lit.js` (~16 КБ,
  * self-contained) — работает одинаково у любого пользователя, без
  * зависимости от окружения.
+ *
+ * INVARIANT: contents of this file MUST NOT change between releases.
+ *
+ * Why: this file is imported by every component via the bare path
+ * "../lit-base.js", which means it carries NO cache-busting query
+ * parameter. The browser ESM module-map and HA HTTP cache pin it
+ * aggressively. If you change exports here, existing users hit
+ * "does not provide export named X" SyntaxErrors after upgrade.
+ *
+ * If you need to add a new shared utility/style:
+ *   - Put it in its OWN module (e.g. design-tokens.js, mb-mixins.js).
+ *   - Components import it directly from that module.
+ *   - The new module's URL is fresh => cache works correctly.
+ * See design-tokens.js for the canonical example.
  */
 export {
   LitElement,

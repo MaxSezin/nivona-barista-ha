@@ -14,6 +14,7 @@ const PANEL_VERSION = _v || "dev";
 await Promise.all([
   import(`./components/melitta-toast.js${_q}`),
   import(`./components/melitta-modal.js${_q}`),
+  import(`./components/melitta-confirm.js${_q}`),
   import(`./components/melitta-status.js${_q}`),
   import(`./components/melitta-diagnostics.js${_q}`),
   import(`./components/melitta-recipes.js${_q}`),
@@ -21,14 +22,14 @@ await Promise.all([
   import(`./components/melitta-additives.js${_q}`),
   import(`./components/melitta-sommelier.js${_q}`),
   import(`./components/melitta-settings.js${_q}`),
+  import(`./components/melitta-system.js${_q}`),
 ]);
 
 import { LitElement, html, css } from "./lit-base.js";
 import { t } from "./i18n.js";
 
 const TAB_IDS = [
-  "status", "diagnostics", "recipes",
-  "beans", "additives", "sommelier", "settings",
+  "sommelier", "beans", "additives", "system",
 ];
 
 class MelittaPanel extends LitElement {
@@ -124,20 +125,14 @@ class MelittaPanel extends LitElement {
     }
     const props = { hass: this.hass, entryId: this._activeEntry, lang: this._lang };
     switch (this._tab) {
-      case "status":
-        return html`<melitta-status .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-status>`;
-      case "diagnostics":
-        return html`<melitta-diagnostics .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-diagnostics>`;
-      case "recipes":
-        return html`<melitta-recipes .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-recipes>`;
+      case "sommelier":
+        return html`<melitta-sommelier .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-sommelier>`;
       case "beans":
         return html`<melitta-beans .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-beans>`;
       case "additives":
         return html`<melitta-additives .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-additives>`;
-      case "sommelier":
-        return html`<melitta-sommelier .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-sommelier>`;
-      case "settings":
-        return html`<melitta-settings .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-settings>`;
+      case "system":
+        return html`<melitta-system .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-system>`;
       default:
         return "";
     }

@@ -2,6 +2,25 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.54.0] — 2026-05-25
+
+### Added
+- **`<melitta-confirm>` shared dialog component** — promise-based replacement for native `window.confirm()`. All deletion dialogs in Beans / Add-ins now use it with destructive-styling.
+- **`design-tokens.js` + `sharedStyles` export from `lit-base.js`** — spacing scale, radius, focus-ring tokens for uniform component styling. Foundation for the wider design-system work in upcoming P1–P5 plans.
+- **`<melitta-system>` container** with sub-tabs **Status / Settings / Diagnostics / Machine recipes** — collapses what used to be four top-level navigation buttons into one.
+
+### Changed
+- **Top tabs reduced to four** in new order: **Sommelier / Beans / Add-ins / System**. Sommelier becomes the primary (first) tab; everything machine-side / configuration / diagnostic lives behind a single "System" tab in last position.
+- **Hopper-assignment flash messages** are now localized through `i18n.js` (en + ru) — previously the strings were hardcoded in Russian regardless of the user's HA language.
+- **LLM autofill `via:` debug info** moved into a collapsed `<details>` block — production UI no longer leaks the agent backend name as a top-level label on the bean modal.
+
+### Removed
+- Native `window.confirm()` from `melitta-beans.js` (2 sites) and `melitta-additives.js` (1 site).
+- `tabs.status`, `tabs.diagnostics`, `tabs.recipes`, `tabs.settings` i18n keys (replaced by `tabs.system` + `system.subtabs.*`).
+
+### Notes
+- No backend, BLE, LLM, or schema changes — pure frontend refactor. First plan in the P0–P5 series.
+
 ## [0.53.4] — 2026-05-24
 
 ### Changed
