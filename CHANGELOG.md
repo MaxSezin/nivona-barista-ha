@@ -2,6 +2,16 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.61.0] — 2026-05-25
+
+### Added (frontend, finishes the P3 ratings/history surface)
+- **`<melitta-sommelier-history>` modal.** Opened from the new "🕓 History" button in the Sommelier header. Paginated session list (loads `melitta_barista/sommelier/history/list`) with expandable rows: clicking a session inlines its recipes with per-recipe star rating, "Brew again" action (routes through the wizard with `source="generated"` so the user can re-tune extras / cup before brewing), and a tasting note when one is recorded.
+- **"Clear history" footer action.** Confirms via `<melitta-confirm>` and calls the P3a `melitta_barista/sommelier/history/clear` endpoint with `keep_favorited=true`. Sessions referenced by favorites are preserved (server-enforced); the returned `{cleared}` count drives the success toast.
+
+### Notes
+- Star rating uses the shared `<melitta-star-rating>` component introduced in 0.60.0; ratings written from the history view are immediately reflected because the modal re-loads `history/list` on every open.
+- This release closes the P3 surface. Further Sommelier ergonomics (e.g. cross-session recipe search, comparative ratings across capability snapshots) are out of scope.
+
 ## [0.60.0] — 2026-05-25
 
 ### Added (frontend, consumes P3a ratings backend)

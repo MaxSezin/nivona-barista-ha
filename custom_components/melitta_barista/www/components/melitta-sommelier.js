@@ -19,6 +19,7 @@
 import { LitElement, html, css } from "../lit-base.js";
 import { t } from "../i18n.js";
 import "./melitta-sommelier-favorites.js";
+import "./melitta-sommelier-history.js";
 import "./ui/melitta-star-rating.js";
 
 const MODES = [
@@ -66,6 +67,7 @@ class MelittaSommelier extends LitElement {
       _capabilities: { state: true },
       _wizardRecipe: { state: true },
       _favoritesModalOpen: { state: true },
+      _historyModalOpen: { state: true },
       _ratings: { state: true },
       _wizardSource: { state: true },
       _wizardSourceId: { state: true },
@@ -101,6 +103,7 @@ class MelittaSommelier extends LitElement {
     this._capabilities = null;
     this._wizardRecipe = null;
     this._favoritesModalOpen = false;
+    this._historyModalOpen = false;
     this._ratings = {};
     this._wizardSource = "generated";
     this._wizardSourceId = null;
@@ -251,6 +254,17 @@ class MelittaSommelier extends LitElement {
     this._favoritesModalOpen = false;
   }
 
+  _openHistory() {
+    this._historyModalOpen = true;
+  }
+
+  _onHistoryBrewRequested(e) {
+    this._wizardRecipe = e.detail.recipe;
+    this._wizardSource = "generated";
+    this._wizardSourceId = e.detail.recipe.id;
+    this._historyModalOpen = false;
+  }
+
   async _rateGenerated(recipeId, rating) {
     try {
       await this.hass.callWS({
@@ -303,6 +317,7 @@ class MelittaSommelier extends LitElement {
           </button>
         </div>
         <div class="header-actions">
+          <button class="ghost" @click=${() => this._openHistory()}>${this._t("sommelier.history_button")}</button>
           <button class="ghost" @click=${() => this._openFavorites()}>${this._t("sommelier.favorites_button")}</button>
         </div>
         ${this._mode === "custom" ? html`
@@ -596,6 +611,14 @@ class MelittaSommelier extends LitElement {
         @close=${() => { this._favoritesModalOpen = false; }}
         @brew=${(e) => this._onFavoriteBrewRequested(e)}>
       </melitta-sommelier-favorites>
+      <melitta-sommelier-history
+        .hass=${this.hass}
+        .entryId=${this.entryId}
+        .lang=${this.lang}
+        ?open=${this._historyModalOpen}
+        @close=${() => { this._historyModalOpen = false; }}
+        @brew=${(e) => this._onHistoryBrewRequested(e)}>
+      </melitta-sommelier-history>
     `;
   }
 
