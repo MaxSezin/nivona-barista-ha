@@ -14,7 +14,9 @@ import aiosqlite
 
 _LOGGER = logging.getLogger("melitta_barista")
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
+
+_VALID_RATING_TARGET_TYPES = frozenset({"generated", "favorite"})
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS coffee_beans (
@@ -133,6 +135,16 @@ CREATE TABLE IF NOT EXISTS machine_capabilities (
   probed_at TEXT NOT NULL,
   schema_version INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS recipe_ratings (
+  target_id TEXT NOT NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('generated', 'favorite')),
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  PRIMARY KEY (target_id, target_type)
+);
 """
 
 MIGRATE_V1_TO_V2 = """
@@ -210,6 +222,23 @@ UPDATE favorites
        json_object('component', json(component2), 'user_action_before', json_array())
    )
  WHERE machine_phases IS NULL;
+"""
+
+# v5 → v6: add the `recipe_ratings` table for the user-facing recipe rating
+# feature (1..5 stars + optional note, keyed by (target_id, target_type) so
+# the same UUID can carry separate ratings as a generated recipe vs. as a
+# saved favorite — see CRUD methods async_set_rating / async_get_rating /
+# async_clear_rating).
+MIGRATE_V5_TO_V6 = """
+CREATE TABLE IF NOT EXISTS recipe_ratings (
+  target_id TEXT NOT NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('generated', 'favorite')),
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  PRIMARY KEY (target_id, target_type)
+);
 """
 
 INIT_HOPPERS_SQL = """
@@ -296,6 +325,8 @@ class SommelierDB:
                 migrations.append((4, MIGRATE_V3_TO_V4))
             if current_version < 5:
                 migrations.append((5, MIGRATE_V4_TO_V5))
+            if current_version < 6:
+                migrations.append((6, MIGRATE_V5_TO_V6))
             for target_version, sql in migrations:
                 for stmt in sql.strip().split(";"):
                     stmt = stmt.strip()
@@ -772,6 +803,72 @@ class SommelierDB:
             (now, fav_id),
         )
         await self.db.commit()
+
+    # ── Recipe Ratings ────────────────────────────────────────────────
+
+    async def async_set_rating(
+        self, target_id: str, target_type: str, rating: int, note: str | None
+    ) -> None:
+        """Upsert a rating + optional note for a recipe (generated or favorite)."""
+        if target_type not in _VALID_RATING_TARGET_TYPES:
+            raise ValueError(
+                f"target_type must be one of {sorted(_VALID_RATING_TARGET_TYPES)}, "
+                f"got {target_type!r}"
+            )
+        if not (1 <= int(rating) <= 5):
+            raise ValueError(f"rating must be in 1..5, got {rating!r}")
+
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        async with self._lock:
+            cur = await self._db.execute(
+                "SELECT created_at FROM recipe_ratings WHERE target_id = ? AND target_type = ?",
+                (target_id, target_type),
+            )
+            existing = await cur.fetchone()
+            if existing:
+                await self._db.execute(
+                    "UPDATE recipe_ratings SET rating = ?, note = ?, updated_at = ? "
+                    "WHERE target_id = ? AND target_type = ?",
+                    (int(rating), note, now, target_id, target_type),
+                )
+            else:
+                await self._db.execute(
+                    "INSERT INTO recipe_ratings (target_id, target_type, rating, note, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (target_id, target_type, int(rating), note, now),
+                )
+            await self._db.commit()
+
+    async def async_clear_rating(self, target_id: str, target_type: str) -> None:
+        """Remove the rating row (if any) for a target."""
+        async with self._lock:
+            await self._db.execute(
+                "DELETE FROM recipe_ratings WHERE target_id = ? AND target_type = ?",
+                (target_id, target_type),
+            )
+            await self._db.commit()
+
+    async def async_get_rating(
+        self, target_id: str, target_type: str
+    ) -> dict | None:
+        """Return the rating row or None."""
+        async with self._lock:
+            cur = await self._db.execute(
+                "SELECT target_id, target_type, rating, note, created_at, updated_at "
+                "FROM recipe_ratings WHERE target_id = ? AND target_type = ?",
+                (target_id, target_type),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "target_id": row[0],
+            "target_type": row[1],
+            "rating": row[2],
+            "note": row[3],
+            "created_at": row[4],
+            "updated_at": row[5],
+        }
 
     # ── Settings ──────────────────────────────────────────────────────
 
