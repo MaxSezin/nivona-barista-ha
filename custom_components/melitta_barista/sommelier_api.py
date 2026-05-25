@@ -173,8 +173,10 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_favorites_list)
     websocket_api.async_register_command(hass, ws_favorites_add)
     websocket_api.async_register_command(hass, ws_favorites_remove)
+    websocket_api.async_register_command(hass, ws_favorites_update)
     websocket_api.async_register_command(hass, ws_favorites_brew)
     websocket_api.async_register_command(hass, ws_history_list)
+    websocket_api.async_register_command(hass, ws_history_clear)
     websocket_api.async_register_command(hass, ws_presets_list)
     websocket_api.async_register_command(hass, ws_settings_get)
     websocket_api.async_register_command(hass, ws_settings_set)
@@ -187,6 +189,8 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_profiles_update)
     websocket_api.async_register_command(hass, ws_profiles_delete)
     websocket_api.async_register_command(hass, ws_profiles_activate)
+    websocket_api.async_register_command(hass, ws_recipe_rate)
+    websocket_api.async_register_command(hass, ws_recipe_unrate)
 
 
 # ── Beans ─────────────────────────────────────────────────────────────
@@ -864,6 +868,33 @@ async def ws_favorites_remove(
     connection.send_result(msg["id"])
 
 
+@websocket_api.websocket_command({
+    vol.Required("type"): "melitta_barista/sommelier/favorites/update",
+    vol.Required("favorite_id"): cv.string,
+    vol.Optional("name"): cv.string,
+    vol.Optional("description"): cv.string,
+    vol.Optional("note"): vol.Any(cv.string, None),
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_favorites_update(hass, connection, msg) -> None:
+    """Patch a favorite's name / description / note."""
+    db = await _async_get_db(hass)
+    patch = {k: msg[k] for k in ("name", "description", "note") if k in msg}
+    if not patch:
+        connection.send_error(msg["id"], "no_fields", "no fields to update")
+        return
+    try:
+        changed = await db.async_update_favorite(msg["favorite_id"], **patch)
+    except ValueError as exc:
+        connection.send_error(msg["id"], "invalid_update", str(exc))
+        return
+    if not changed:
+        connection.send_error(msg["id"], "not_found", f"favorite {msg['favorite_id']} not found")
+        return
+    connection.send_result(msg["id"], {})
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "melitta_barista/sommelier/favorites/brew",
@@ -932,6 +963,24 @@ async def ws_history_list(
         limit=msg["limit"], offset=msg["offset"]
     )
     connection.send_result(msg["id"], {"sessions": sessions})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "melitta_barista/sommelier/history/clear",
+    vol.Optional("keep_favorited", default=True): bool,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_history_clear(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Delete history sessions. By default protects sessions linked to favorites."""
+    db = await _async_get_db(hass)
+    keep = msg.get("keep_favorited", True)
+    cleared = await db.async_clear_history(keep_favorited=keep)
+    connection.send_result(msg["id"], {"cleared": cleared})
 
 
 # ── Presets ───────────────────────────────────────────────────────────
@@ -1040,6 +1089,59 @@ async def ws_extras_set(
     db = await _async_get_db(hass)
     await db.async_set_extras(msg["category"], msg["items"])
     connection.send_result(msg["id"])
+
+
+# ── Recipe Ratings ────────────────────────────────────────────────────
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "melitta_barista/sommelier/recipe/rate",
+        vol.Required("target_id"): cv.string,
+        vol.Required("target_type"): vol.In(["generated", "favorite"]),
+        vol.Required("rating"): vol.All(int, vol.Range(min=1, max=5)),
+        vol.Optional("note"): vol.Any(cv.string, None),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_recipe_rate(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Set/update a rating for a recipe (generated or favorite)."""
+    db = await _async_get_db(hass)
+    try:
+        await db.async_set_rating(
+            msg["target_id"],
+            msg["target_type"],
+            int(msg["rating"]),
+            msg.get("note"),
+        )
+    except ValueError as exc:
+        connection.send_error(msg["id"], "invalid_rating", str(exc))
+        return
+    connection.send_result(msg["id"], {})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "melitta_barista/sommelier/recipe/unrate",
+        vol.Required("target_id"): cv.string,
+        vol.Required("target_type"): vol.In(["generated", "favorite"]),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_recipe_unrate(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Remove a recipe rating."""
+    db = await _async_get_db(hass)
+    await db.async_clear_rating(msg["target_id"], msg["target_type"])
+    connection.send_result(msg["id"], {})
 
 
 # ── Preferences ──────────────────────────────────────────────────────

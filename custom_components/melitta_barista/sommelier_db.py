@@ -14,7 +14,11 @@ import aiosqlite
 
 _LOGGER = logging.getLogger("melitta_barista")
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
+
+_VALID_RATING_TARGET_TYPES = frozenset({"generated", "favorite"})
+
+_ALLOWED_FAVORITE_UPDATE_FIELDS = frozenset({"name", "description", "note"})
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS coffee_beans (
@@ -133,6 +137,16 @@ CREATE TABLE IF NOT EXISTS machine_capabilities (
   probed_at TEXT NOT NULL,
   schema_version INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS recipe_ratings (
+  target_id TEXT NOT NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('generated', 'favorite')),
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  PRIMARY KEY (target_id, target_type)
+);
 """
 
 MIGRATE_V1_TO_V2 = """
@@ -210,6 +224,23 @@ UPDATE favorites
        json_object('component', json(component2), 'user_action_before', json_array())
    )
  WHERE machine_phases IS NULL;
+"""
+
+# v5 → v6: add the `recipe_ratings` table for the user-facing recipe rating
+# feature (1..5 stars + optional note, keyed by (target_id, target_type) so
+# the same UUID can carry separate ratings as a generated recipe vs. as a
+# saved favorite — see CRUD methods async_set_rating / async_get_rating /
+# async_clear_rating).
+MIGRATE_V5_TO_V6 = """
+CREATE TABLE IF NOT EXISTS recipe_ratings (
+  target_id TEXT NOT NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('generated', 'favorite')),
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  PRIMARY KEY (target_id, target_type)
+);
 """
 
 INIT_HOPPERS_SQL = """
@@ -296,6 +327,8 @@ class SommelierDB:
                 migrations.append((4, MIGRATE_V3_TO_V4))
             if current_version < 5:
                 migrations.append((5, MIGRATE_V4_TO_V5))
+            if current_version < 6:
+                migrations.append((6, MIGRATE_V5_TO_V6))
             for target_version, sql in migrations:
                 for stmt in sql.strip().split(";"):
                     stmt = stmt.strip()
@@ -629,9 +662,14 @@ class SommelierDB:
         await self.db.commit()
 
     async def async_get_recipe(self, recipe_id: str) -> dict[str, Any] | None:
-        """Get a single generated recipe by ID."""
+        """Get a single generated recipe by ID, enriched with rating + note."""
         cursor = await self.db.execute(
-            "SELECT * FROM generated_recipes WHERE id = ?", (recipe_id,)
+            """SELECT gr.*, r.rating AS rating, r.note AS note
+                 FROM generated_recipes gr
+                 LEFT JOIN recipe_ratings r
+                   ON r.target_id = gr.id AND r.target_type = 'generated'
+                WHERE gr.id = ?""",
+            (recipe_id,),
         )
         row = await cursor.fetchone()
         if row is None:
@@ -659,8 +697,12 @@ class SommelierDB:
             sess = _row_to_dict(sess_row)
             sess["milk_types"] = json.loads(sess["milk_types"]) if sess["milk_types"] else []
             recipe_cursor = await self.db.execute(
-                """SELECT * FROM generated_recipes
-                   WHERE session_id = ? ORDER BY created_at""",
+                """SELECT gr.*, rt.rating AS rating, rt.note AS note
+                     FROM generated_recipes gr
+                     LEFT JOIN recipe_ratings rt
+                       ON rt.target_id = gr.id AND rt.target_type = 'generated'
+                    WHERE gr.session_id = ?
+                    ORDER BY gr.created_at""",
                 (sess["id"],),
             )
             sess["recipes"] = []
@@ -676,12 +718,45 @@ class SommelierDB:
             sessions.append(sess)
         return sessions
 
+    async def async_clear_history(self, keep_favorited: bool = True) -> int:
+        """Delete generation sessions (+ cascaded recipes). Returns # removed.
+
+        When ``keep_favorited`` is True (default), sessions containing at least
+        one recipe currently referenced by ``favorites.source_recipe_id`` are
+        preserved. Cascade on ``generated_recipes.session_id`` (ON DELETE
+        CASCADE, with PRAGMA foreign_keys=ON set at setup time) removes child
+        recipe rows for every deleted session.
+        """
+        async with self._lock:
+            if keep_favorited:
+                cursor = await self.db.execute(
+                    """DELETE FROM generation_sessions
+                        WHERE id NOT IN (
+                          SELECT DISTINCT r.session_id
+                            FROM generated_recipes r
+                            JOIN favorites f ON f.source_recipe_id = r.id
+                        )"""
+                )
+            else:
+                cursor = await self.db.execute("DELETE FROM generation_sessions")
+            removed = cursor.rowcount or 0
+            await self.db.commit()
+        return removed
+
     # ── Favorites ─────────────────────────────────────────────────────
 
     async def async_list_favorites(self) -> list[dict[str, Any]]:
-        """List all favorites, most brewed first."""
+        """List all favorites, most brewed first.
+
+        Each row is enriched with ``rating`` (1..5 or None) and ``note`` (str
+        or None) via LEFT JOIN on ``recipe_ratings`` (target_type='favorite').
+        """
         cursor = await self.db.execute(
-            "SELECT * FROM favorites ORDER BY brew_count DESC, created_at DESC"
+            """SELECT f.*, r.rating AS rating, r.note AS note
+                 FROM favorites f
+                 LEFT JOIN recipe_ratings r
+                   ON r.target_id = f.id AND r.target_type = 'favorite'
+                ORDER BY f.brew_count DESC, f.created_at DESC"""
         )
         result = []
         for row in await cursor.fetchall():
@@ -741,9 +816,14 @@ class SommelierDB:
         return await self.async_get_favorite(fav_id)  # type: ignore[return-value]
 
     async def async_get_favorite(self, fav_id: str) -> dict[str, Any] | None:
-        """Get a single favorite by ID."""
+        """Get a single favorite by ID, enriched with rating + note."""
         cursor = await self.db.execute(
-            "SELECT * FROM favorites WHERE id = ?", (fav_id,)
+            """SELECT f.*, r.rating AS rating, r.note AS note
+                 FROM favorites f
+                 LEFT JOIN recipe_ratings r
+                   ON r.target_id = f.id AND r.target_type = 'favorite'
+                WHERE f.id = ?""",
+            (fav_id,),
         )
         row = await cursor.fetchone()
         if row is None:
@@ -764,6 +844,47 @@ class SommelierDB:
         await self.db.commit()
         return cursor.rowcount > 0
 
+    async def async_update_favorite(self, favorite_id: str, **patch) -> bool:
+        """Patch favorite fields. Returns True if any change was applied.
+
+        Allowed: name, description, note. Note routes through recipe_ratings
+        (favorite target_type) — requires an existing rating row.
+        """
+        if not patch:
+            return False
+        for k in patch:
+            if k not in _ALLOWED_FAVORITE_UPDATE_FIELDS:
+                raise ValueError(
+                    f"field {k!r} not in allowed update set: "
+                    f"{sorted(_ALLOWED_FAVORITE_UPDATE_FIELDS)}"
+                )
+        rows_changed = False
+        db_columns = {k: v for k, v in patch.items() if k in {"name", "description"}}
+        if db_columns:
+            set_clause = ", ".join(f"{c} = ?" for c in db_columns)
+            params = list(db_columns.values()) + [favorite_id]
+            async with self._lock:
+                cur = await self._db.execute(
+                    f"UPDATE favorites SET {set_clause} WHERE id = ?",  # nosec B608
+                    params,
+                )
+                await self._db.commit()
+                rows_changed = cur.rowcount > 0
+        if "note" in patch:
+            note_value = patch["note"]
+            existing = await self.async_get_rating(favorite_id, "favorite")
+            if existing is None:
+                raise ValueError(
+                    "cannot set note without a rating; call recipe/rate first"
+                )
+            await self.async_set_rating(
+                favorite_id, "favorite",
+                int(existing["rating"]),
+                note_value,
+            )
+            rows_changed = True
+        return rows_changed
+
     async def async_increment_favorite_brew(self, fav_id: str) -> None:
         """Increment brew count for a favorite."""
         now = _now()
@@ -772,6 +893,72 @@ class SommelierDB:
             (now, fav_id),
         )
         await self.db.commit()
+
+    # ── Recipe Ratings ────────────────────────────────────────────────
+
+    async def async_set_rating(
+        self, target_id: str, target_type: str, rating: int, note: str | None
+    ) -> None:
+        """Upsert a rating + optional note for a recipe (generated or favorite)."""
+        if target_type not in _VALID_RATING_TARGET_TYPES:
+            raise ValueError(
+                f"target_type must be one of {sorted(_VALID_RATING_TARGET_TYPES)}, "
+                f"got {target_type!r}"
+            )
+        if not (1 <= int(rating) <= 5):
+            raise ValueError(f"rating must be in 1..5, got {rating!r}")
+
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        async with self._lock:
+            cur = await self._db.execute(
+                "SELECT created_at FROM recipe_ratings WHERE target_id = ? AND target_type = ?",
+                (target_id, target_type),
+            )
+            existing = await cur.fetchone()
+            if existing:
+                await self._db.execute(
+                    "UPDATE recipe_ratings SET rating = ?, note = ?, updated_at = ? "
+                    "WHERE target_id = ? AND target_type = ?",
+                    (int(rating), note, now, target_id, target_type),
+                )
+            else:
+                await self._db.execute(
+                    "INSERT INTO recipe_ratings (target_id, target_type, rating, note, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (target_id, target_type, int(rating), note, now),
+                )
+            await self._db.commit()
+
+    async def async_clear_rating(self, target_id: str, target_type: str) -> None:
+        """Remove the rating row (if any) for a target."""
+        async with self._lock:
+            await self._db.execute(
+                "DELETE FROM recipe_ratings WHERE target_id = ? AND target_type = ?",
+                (target_id, target_type),
+            )
+            await self._db.commit()
+
+    async def async_get_rating(
+        self, target_id: str, target_type: str
+    ) -> dict | None:
+        """Return the rating row or None."""
+        async with self._lock:
+            cur = await self._db.execute(
+                "SELECT target_id, target_type, rating, note, created_at, updated_at "
+                "FROM recipe_ratings WHERE target_id = ? AND target_type = ?",
+                (target_id, target_type),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "target_id": row[0],
+            "target_type": row[1],
+            "rating": row[2],
+            "note": row[3],
+            "created_at": row[4],
+            "updated_at": row[5],
+        }
 
     # ── Settings ──────────────────────────────────────────────────────
 
