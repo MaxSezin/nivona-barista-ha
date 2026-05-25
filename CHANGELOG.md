@@ -5,18 +5,18 @@ All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 ## [0.57.0] — 2026-05-25
 
 ### Changed (data-model migration)
-- **`GeneratedRecipe.component1` + `component2` replaced by `machine_phases: list[MachinePhase]`** (длина 1..2). Каждый `MachinePhase` содержит `component: RecipeComponent` и `user_action_before: list[RecipeStep]` (в P2a всегда пустой; наполняется Brewing Wizard'ом в P2b). Изменение pydantic-модели автоматически прокидывается в JSON Schema LLM-промпта и в retry-validation loop.
-- **DB schema v4 → v5.** Новая колонка `machine_phases TEXT` в `generated_recipes` и `favorites`. Миграция наполняет новую колонку из существующих `component1`/`component2` через SQLite JSON1 (`json_array`/`json_object`). Старые колонки остаются NOT NULL для cross-version совместимости; новые записи пишут синтезированные значения. Физическое удаление колонок — задача P3+.
-- **`_brew_recipe_components`** теперь принимает `phases: list[dict]` вместо `comp1`/`comp2` kwargs. BLE-вызов (`client.brew_freestyle(component1=..., component2=...)`) не изменился — helper распаковывает первые две фазы и синтезирует `"none"`-process component2 для одно-фазных рецептов. Conversion `portion // 5` и `blend`-alternation сохранены.
-- **LLM prompt:** пример JSON, rules block, и capability-instruction text используют `machine_phases` вместо `component1/2`. Default — single-phase brew; вторая фаза только когда single-phase не достигает результата.
+- **`GeneratedRecipe.component1` + `component2` replaced by `machine_phases: list[MachinePhase]`** (length 1..2). Each `MachinePhase` carries a `component: RecipeComponent` and a `user_action_before: list[RecipeStep]` (always empty in P2a; populated by the Brewing Wizard in P2b). The pydantic model change automatically propagates into the LLM-prompt JSON Schema and the validation/retry loop.
+- **DB schema v4 → v5.** New `machine_phases TEXT` column on `generated_recipes` and `favorites`. Migration populates the new column from existing `component1`/`component2` via SQLite JSON1 (`json_array`/`json_object`). Old columns stay NOT NULL for cross-version readability; new rows write synthesized placeholders. Physical column drop is a P3+ housekeeping task.
+- **`_brew_recipe_components`** now takes `phases: list[dict]` instead of `comp1`/`comp2` kwargs. The BLE call (`client.brew_freestyle(component1=..., component2=...)`) is unchanged — the helper unpacks the first two phases and synthesizes a `"none"`-process component2 for single-phase recipes. The `portion // 5` conversion and `blend`-alternation between components are preserved.
+- **LLM prompt:** example JSON, rules block, and capability-instruction text reference `machine_phases` instead of `component1/2`. Single-phase brews are encouraged by default; a second phase is added only when a single-phase brew can't achieve the result.
 
 ### UI
-- **`melitta-sommelier.js`** итерирует `r.machine_phases` для рендеринга phase-чипов. Fallback на `r.component1`/`component2` для legacy WS-responses сохранён до P2b.
+- **`melitta-sommelier.js`** iterates `r.machine_phases` to render per-phase chips. A fallback to `r.component1`/`r.component2` for legacy WS responses is kept until P2b.
 
 ### Notes
-- BLE-protocol layer (`client.brew_freestyle` сигнатура) не тронут в P2a. Sequential brewing с явными пользовательскими паузами между фазами — задача Brewing Wizard (P2b), не BLE-уровня.
-- Read path для favorites / history синтезирует `machine_phases` из `component1`/`component2` для legacy строк, плюс возвращает `component1`/`component2` для backwards-compat читателей (frontend всё ещё имеет fallback).
-- 19 новых tests: `test_machine_phases.py` (7 на pydantic model) + обновления `test_ai_recipes.py` / `test_sommelier_db.py` / `test_capabilities_db.py`.
+- BLE-protocol layer (`client.brew_freestyle` signature) is untouched in P2a. Sequential brewing with explicit user-action pauses between phases is the Brewing Wizard's job (P2b), not the BLE layer's.
+- Read path for favorites / history synthesizes `machine_phases` from `component1`/`component2` for legacy rows; it still returns `component1`/`component2` for backwards-compat readers (the frontend keeps its fallback).
+- 19 new tests: `test_machine_phases.py` (7 on the pydantic model) + updates to `test_ai_recipes.py` / `test_sommelier_db.py` / `test_capabilities_db.py`.
 
 ## [0.56.0] — 2026-05-25
 
