@@ -1272,7 +1272,7 @@ async def _ws_prompts_preview(hass, connection, msg):
             db = await _async_get_db(hass)
             hoppers = await db.async_get_hoppers()
             milk_types = await db.async_get_milk()
-            extras = await db.async_get_extras()
+            extras = await db.async_get_pantry_extras()
         except Exception:  # noqa: BLE001
             hoppers = {"hopper1": None, "hopper2": None}
             milk_types = []

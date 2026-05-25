@@ -41,7 +41,7 @@ async def test_ws_generate_uses_resolve_agent_id():
     db = MagicMock()
     db.async_get_hoppers = AsyncMock(return_value={"hopper1": {}, "hopper2": {}})
     db.async_get_milk = AsyncMock(return_value=[])
-    db.async_get_extras = AsyncMock(return_value={"syrups": [], "toppings": [], "liqueurs": [], "misc": []})
+    db.async_get_pantry_extras = AsyncMock(return_value={"syrups": [], "toppings": [], "liqueurs": [], "misc": []})
     db.async_get_active_profile = AsyncMock(return_value=None)
     # If ws_generate consults settings directly (the old behaviour) the test
     # will see "settings_default" instead of the override and fail.
