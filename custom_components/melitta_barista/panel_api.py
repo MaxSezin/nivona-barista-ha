@@ -313,6 +313,9 @@ async def _async_get_db(hass: HomeAssistant):
 async def _ensure_panel_schema(db) -> None:
     """Create panel-only tables (producers, syrups, toppings, tags, prompts)
     if missing. Beans and milk tables are managed by sommelier_db.async_setup.
+
+    Also runs idempotent column migrations for legacy DBs that pre-date the
+    `available` flag on the additive tables (P4a).
     """
     db_handle = db._db
     if db_handle is None:
@@ -332,6 +335,7 @@ async def _ensure_panel_schema(db) -> None:
             name TEXT NOT NULL,
             brand TEXT,
             notes TEXT,
+            available INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         );
 
@@ -340,6 +344,7 @@ async def _ensure_panel_schema(db) -> None:
             name TEXT NOT NULL,
             brand TEXT,
             notes TEXT,
+            available INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         );
 
@@ -354,6 +359,21 @@ async def _ensure_panel_schema(db) -> None:
             updated_at TEXT NOT NULL
         );
     """)
+
+    # Legacy-DB migration: ensure `available` column exists on additive tables.
+    # On fresh DBs the CREATE above already includes it, so the PRAGMA check
+    # short-circuits the ALTER.
+    for _additive_table in ("syrups", "toppings"):
+        cursor = await db_handle.execute(
+            f"PRAGMA table_info({_additive_table})"  # nosec B608
+        )
+        cols = {row[1] for row in await cursor.fetchall()}
+        if "available" not in cols:
+            await db_handle.execute(
+                f"ALTER TABLE {_additive_table} "  # nosec B608
+                "ADD COLUMN available INTEGER NOT NULL DEFAULT 1"
+            )
+
     await db_handle.commit()
 
 
@@ -693,12 +713,19 @@ def _make_additive_handlers(table: str):
         # `table` is bound at handler-factory call time to a literal
         # string ("syrups" / "toppings"), never user input.
         cursor = await db._db.execute(
-            f"SELECT id, name, brand, notes FROM {table} ORDER BY name"  # nosec B608
+            f"SELECT id, name, brand, notes, available FROM {table} ORDER BY name"  # nosec B608
         )
         rows = await cursor.fetchall()
         connection.send_result(msg["id"], {
             table: [
-                {"id": r[0], "name": r[1], "brand": r[2], "notes": r[3]}
+                {
+                    "id": r[0],
+                    "name": r[1],
+                    "brand": r[2],
+                    "notes": r[3],
+                    # Defensive: NULL/missing -> available (legacy rows pre-default).
+                    "available": bool(r[4]) if r[4] is not None else True,
+                }
                 for r in rows
             ],
         })
@@ -752,18 +779,24 @@ def _make_additive_update_handler(table: str):
         vol.Optional("name"): str,
         vol.Optional("brand"): str,
         vol.Optional("notes"): str,
+        vol.Optional("available"): bool,
     })
     @websocket_api.require_admin
     @websocket_api.async_response
     async def _ws_update(hass, connection, msg):
-        """Patch the writable additive fields (name, brand, notes)."""
+        """Patch the writable additive fields (name, brand, notes, available)."""
         db = await _async_get_db(hass)
-        fields = {k: msg[k] for k in ("name", "brand", "notes") if k in msg}
+        fields: dict[str, object] = {
+            k: msg[k] for k in ("name", "brand", "notes") if k in msg
+        }
+        if "available" in msg:
+            # SQLite stores bool as INTEGER 0/1.
+            fields["available"] = 1 if msg["available"] else 0
         if not fields:
             connection.send_error(msg["id"], "no_fields", "No fields to update")
             return
         set_clause = ", ".join(f"{k} = ?" for k in fields)
-        # Column names come from a whitelist literal on line 756; `table`
+        # Column names come from a whitelist literal above; `table`
         # is a closure-captured literal — no user SQL fragment.
         await db._db.execute(
             f"UPDATE {table} SET {set_clause} WHERE id = ?",  # nosec B608
