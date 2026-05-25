@@ -17,7 +17,19 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .const import (
+    AROMA_MAP,
+    INTENSITY_MAP,
+    PROCESS_MAP,
+    SHOTS_MAP,
+    TEMPERATURE_MAP,
+)
+
 _SUPPORTED_SCHEMA_VERSIONS = {1}
+
+# Global portion default for P1a — protocol-wide range from service schema.
+# In future plans, per-process / per-family overrides will land here.
+_DEFAULT_PORTION_LIMITS: dict[str, int] = {"min": 0, "max": 250, "step": 5}
 
 
 @dataclass(frozen=True)
@@ -62,19 +74,6 @@ class LiveCapabilities:
             portion_limits=dict(data.get("portion_limits", {})),
             forbidden_combinations=tuple(data.get("forbidden_combinations", ())),
         )
-
-
-from .const import (
-    AROMA_MAP,
-    INTENSITY_MAP,
-    PROCESS_MAP,
-    SHOTS_MAP,
-    TEMPERATURE_MAP,
-)
-
-# Global portion default for P1a — protocol-wide range from service schema.
-# In future plans, per-process / per-family overrides will land here.
-_DEFAULT_PORTION_LIMITS: dict[str, int] = {"min": 0, "max": 250, "step": 5}
 
 
 def derive_capabilities(client: Any) -> LiveCapabilities:

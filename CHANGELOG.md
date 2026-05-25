@@ -2,6 +2,20 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.55.0] — 2026-05-25
+
+### Added
+- **`LiveCapabilities` data model** (`custom_components/melitta_barista/capabilities.py`) — typed view of machine capabilities (supported processes / intensities / aromas / temperatures / shots, per-process portion limits, forbidden combinations). Frozen dataclass with `to_json()` / `from_json()` round-trip; rejects unsupported `schema_version` early.
+- **`machine_capabilities` SQLite table** (sommelier DB schema v3 → v4). Cached per `entry_id` with `probed_at` UTC timestamp. New `async_get_capabilities(entry_id)` / `async_save_capabilities(entry_id, json_payload)` methods on `SommelierDB`.
+- **`derive_capabilities(client)` builder** — produces `LiveCapabilities` from a client's static brand profile + `const.py` enum maps. `strength_levels=3` → center three intensities (`mild/medium/strong`); `strength_levels=5` → all five. `has_aroma_balance=False` → only `standard` aroma. Per-process portion limits use a global default (`{min: 0, max: 250, step: 5}`) for P1a.
+- **Probe-on-connect hook** — `_make_capabilities_probe_callback` factory in `__init__.py` wired via `client.add_connection_callback`; on a successful handshake it derives + saves capabilities. Errors during derive / save are swallowed and logged.
+- **`melitta_barista/capabilities/get` WebSocket endpoint** — returns cached blob with `source: "cache"`, or falls back to on-the-fly derive with `source: "derive"`, or `send_error` if neither is possible. Corrupt or future-schema cached payloads are gracefully detected and fall through to the live-derive path (regression test included).
+
+### Notes (P1a scope)
+- No new BLE round-trips. `forbidden_combinations` is always `[]`; real values arrive when protocol observation produces them.
+- **Known caveat:** `sommelier_db` is initialized lazily on the first WS call — at `async_setup_entry` time it is usually `None`, so the probe-on-connect callback silently no-ops on a fresh setup and the cache is populated only after the panel opens. The fallback-to-derive path in the WS endpoint covers this transparently. Eager DB initialization is deferred to P1b (or a follow-up hotfix).
+- LLM-prompt rewrite (R4 prompt section), B7 (agent_id override in `/generate`), B8 (pydantic mandatory dep), UI gating, and per-process portion limits are explicitly out of scope — see `docs/SOMMELIER_TZ_DRAFT.md` §13 / §14.
+
 ## [0.54.1] — 2026-05-25
 
 ### Changed
