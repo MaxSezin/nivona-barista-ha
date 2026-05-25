@@ -313,6 +313,9 @@ async def _async_get_db(hass: HomeAssistant):
 async def _ensure_panel_schema(db) -> None:
     """Create panel-only tables (producers, syrups, toppings, tags, prompts)
     if missing. Beans and milk tables are managed by sommelier_db.async_setup.
+
+    Also runs idempotent column migrations for legacy DBs that pre-date the
+    `available` flag on the additive tables (P4a).
     """
     db_handle = db._db
     if db_handle is None:
@@ -332,6 +335,7 @@ async def _ensure_panel_schema(db) -> None:
             name TEXT NOT NULL,
             brand TEXT,
             notes TEXT,
+            available INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         );
 
@@ -340,6 +344,7 @@ async def _ensure_panel_schema(db) -> None:
             name TEXT NOT NULL,
             brand TEXT,
             notes TEXT,
+            available INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         );
 
@@ -354,6 +359,21 @@ async def _ensure_panel_schema(db) -> None:
             updated_at TEXT NOT NULL
         );
     """)
+
+    # Legacy-DB migration: ensure `available` column exists on additive tables.
+    # On fresh DBs the CREATE above already includes it, so the PRAGMA check
+    # short-circuits the ALTER.
+    for _additive_table in ("syrups", "toppings"):
+        cursor = await db_handle.execute(
+            f"PRAGMA table_info({_additive_table})"  # nosec B608
+        )
+        cols = {row[1] for row in await cursor.fetchall()}
+        if "available" not in cols:
+            await db_handle.execute(
+                f"ALTER TABLE {_additive_table} "  # nosec B608
+                "ADD COLUMN available INTEGER NOT NULL DEFAULT 1"
+            )
+
     await db_handle.commit()
 
 
@@ -693,12 +713,19 @@ def _make_additive_handlers(table: str):
         # `table` is bound at handler-factory call time to a literal
         # string ("syrups" / "toppings"), never user input.
         cursor = await db._db.execute(
-            f"SELECT id, name, brand, notes FROM {table} ORDER BY name"  # nosec B608
+            f"SELECT id, name, brand, notes, available FROM {table} ORDER BY name"  # nosec B608
         )
         rows = await cursor.fetchall()
         connection.send_result(msg["id"], {
             table: [
-                {"id": r[0], "name": r[1], "brand": r[2], "notes": r[3]}
+                {
+                    "id": r[0],
+                    "name": r[1],
+                    "brand": r[2],
+                    "notes": r[3],
+                    # Defensive: NULL/missing -> available (legacy rows pre-default).
+                    "available": bool(r[4]) if r[4] is not None else True,
+                }
                 for r in rows
             ],
         })
@@ -752,18 +779,24 @@ def _make_additive_update_handler(table: str):
         vol.Optional("name"): str,
         vol.Optional("brand"): str,
         vol.Optional("notes"): str,
+        vol.Optional("available"): bool,
     })
     @websocket_api.require_admin
     @websocket_api.async_response
     async def _ws_update(hass, connection, msg):
-        """Patch the writable additive fields (name, brand, notes)."""
+        """Patch the writable additive fields (name, brand, notes, available)."""
         db = await _async_get_db(hass)
-        fields = {k: msg[k] for k in ("name", "brand", "notes") if k in msg}
+        fields: dict[str, object] = {
+            k: msg[k] for k in ("name", "brand", "notes") if k in msg
+        }
+        if "available" in msg:
+            # SQLite stores bool as INTEGER 0/1.
+            fields["available"] = 1 if msg["available"] else 0
         if not fields:
             connection.send_error(msg["id"], "no_fields", "No fields to update")
             return
         set_clause = ", ".join(f"{k} = ?" for k in fields)
-        # Column names come from a whitelist literal on line 756; `table`
+        # Column names come from a whitelist literal above; `table`
         # is a closure-captured literal — no user SQL fragment.
         await db._db.execute(
             f"UPDATE {table} SET {set_clause} WHERE id = ?",  # nosec B608
@@ -777,6 +810,56 @@ def _make_additive_update_handler(table: str):
 
 _SYRUPS_UPDATE = _make_additive_update_handler("syrups")
 _TOPPINGS_UPDATE = _make_additive_update_handler("toppings")
+
+
+def _make_additive_set_available_handler(table: str):
+    """Generate the set_available convenience handler for an additive table.
+
+    Updates the catalogue row's `available` flag and mirrors the value into
+    the legacy `user_extras` table so the Sommelier prompt (which still reads
+    `user_extras` in P4a) reflects pantry state without UI re-entry. The
+    mirror is one-way (catalogue → user_extras); reverse sync is out of scope.
+    """
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): f"melitta_barista/{table}/set_available",
+        # See producers/update — "id" collides with the WS message id.
+        vol.Required("additive_id"): int,
+        vol.Required("available"): bool,
+    })
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def _ws_set_available(hass, connection, msg):
+        """Toggle the catalogue row's `available` and mirror to user_extras."""
+        db = await _async_get_db(hass)
+        # Resolve the additive's name first so we can mirror to user_extras
+        # using a stable key, and so we can return not_found cleanly.
+        cursor = await db._db.execute(
+            f"SELECT name FROM {table} WHERE id = ?",  # nosec B608
+            (msg["additive_id"],),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            connection.send_error(msg["id"], "not_found", "Additive not found")
+            return
+        name = row[0]
+        flag = 1 if msg["available"] else 0
+        # `table` is a closure-captured literal ("syrups" / "toppings").
+        await db._db.execute(
+            f"UPDATE {table} SET available = ? WHERE id = ?",  # nosec B608
+            (flag, msg["additive_id"]),
+        )
+        await db._db.commit()
+        # Mirror to user_extras (category == table name) so the existing
+        # Sommelier prompt path (P4a) keeps working without changes.
+        await db.async_set_extra_available(table, name, bool(msg["available"]))
+        connection.send_result(msg["id"], {"updated": True})
+
+    return _ws_set_available
+
+
+_SYRUPS_SET_AVAILABLE = _make_additive_set_available_handler("syrups")
+_TOPPINGS_SET_AVAILABLE = _make_additive_set_available_handler("toppings")
 
 
 # tags --------------------------------------------------------------------
@@ -1385,6 +1468,8 @@ def async_register_panel_websocket(hass: HomeAssistant) -> None:
         async_register_command(hass, handler)
     async_register_command(hass, _SYRUPS_UPDATE)
     async_register_command(hass, _TOPPINGS_UPDATE)
+    async_register_command(hass, _SYRUPS_SET_AVAILABLE)
+    async_register_command(hass, _TOPPINGS_SET_AVAILABLE)
 
     # tags + prompts + LLM agent picker
     async_register_command(hass, _ws_tags_list)

@@ -2,6 +2,16 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.62.0] — 2026-05-26
+
+### Added (P4a — Pantry, R6 slice 1)
+- **`available` column on the `syrups` / `toppings` panel catalogue tables.** Schema lifted on fresh DBs via `CREATE TABLE`; legacy DBs get the column via an idempotent `PRAGMA table_info`-guarded `ALTER TABLE` inside `_ensure_panel_schema`. Existing rows are retro-flagged in stock (`DEFAULT 1`). The flag is exposed in `melitta_barista/syrups/list` / `toppings/list` responses and patchable via the existing `<table>/update` handler.
+- **`melitta_barista/<table>/set_available` WS endpoints** for `syrups` and `toppings`. Resolves the catalogue row by `additive_id`, updates the flag, and mirrors the state into `user_extras` so the Sommelier AI prompt context (which still reads `user_extras` in P4a) reflects pantry state without a separate UI step. The mirror is one-way (catalogue → `user_extras`) and upserts on enable.
+- **Inline "in stock" toggle on every syrup / topping row** in the Additives panel. Out-of-stock rows render at 50% opacity; the toggle reads `additives.in_stock` / `additives.out_of_stock` for its tooltip.
+
+### Notes
+- This is the first slice of TZ §R6. Beans availability, milk-row toggle, and the Sommelier-side "Show only in-stock items" UX are intentionally out of scope here. Full cutover (Sommelier reads the catalogue directly, `user_extras` retired) is **P4b/P4c**.
+
 ## [0.61.0] — 2026-05-25
 
 ### Added (frontend, finishes the P3 ratings/history surface)

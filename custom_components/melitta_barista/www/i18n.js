@@ -129,6 +129,9 @@ const STRINGS = {
     "additives.empty_syrups": "No syrups configured.",
     "additives.empty_toppings": "No toppings configured.",
     "additives.empty_milk": "No milk types configured.",
+    "additives.in_stock": "In stock",
+    "additives.out_of_stock": "Out of stock",
+    "additives.toggle_stock_failed": "Failed to update stock state.",
 
     "sommelier.title": "AI Sommelier",
     "sommelier.prompt": "Describe what you'd like to drink",
@@ -421,6 +424,9 @@ const STRINGS = {
     "additives.empty_syrups": "Сиропы не добавлены.",
     "additives.empty_toppings": "Топинги не добавлены.",
     "additives.empty_milk": "Типы молока не добавлены.",
+    "additives.in_stock": "В наличии",
+    "additives.out_of_stock": "Закончилось",
+    "additives.toggle_stock_failed": "Не удалось обновить остаток.",
 
     "sommelier.title": "AI Сомелье",
     "sommelier.prompt": "Опишите, что хотите выпить",
