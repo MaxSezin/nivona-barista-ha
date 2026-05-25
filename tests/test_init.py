@@ -452,29 +452,34 @@ async def test_services_registered_only_once(
 ) -> None:
     """Test that services are not re-registered on second setup."""
     client = _mock_client()
-    await _setup_entry_with_client(hass, mock_entry, client)
+    with patch(
+        "custom_components.melitta_barista.sommelier_api._async_get_db",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        await _setup_entry_with_client(hass, mock_entry, client)
 
-    # Services should be registered
-    assert hass.services.has_service(DOMAIN, "brew_freestyle")
-    assert hass.services.has_service(DOMAIN, "brew_directkey")
-    assert hass.services.has_service(DOMAIN, "save_directkey")
+        # Services should be registered
+        assert hass.services.has_service(DOMAIN, "brew_freestyle")
+        assert hass.services.has_service(DOMAIN, "brew_directkey")
+        assert hass.services.has_service(DOMAIN, "save_directkey")
 
-    # Set up a second entry — should not re-register
-    mock_entry2 = MockConfigEntry(
-        domain=DOMAIN,
-        data=MOCK_CONFIG_DATA,
-        unique_id="112233445566",
-    )
-    mock_entry2.add_to_hass(hass)
-    client2 = _mock_client()
-    client2.address = "11:22:33:44:55:66"
-    p1, p2, p3 = _setup_patches(client2)
-    with p1, p2, p3:
-        assert await hass.config_entries.async_setup(mock_entry2.entry_id)
-        await hass.async_block_till_done()
+        # Set up a second entry — should not re-register
+        mock_entry2 = MockConfigEntry(
+            domain=DOMAIN,
+            data=MOCK_CONFIG_DATA,
+            unique_id="112233445566",
+        )
+        mock_entry2.add_to_hass(hass)
+        client2 = _mock_client()
+        client2.address = "11:22:33:44:55:66"
+        p1, p2, p3 = _setup_patches(client2)
+        with p1, p2, p3:
+            assert await hass.config_entries.async_setup(mock_entry2.entry_id)
+            await hass.async_block_till_done()
 
-    # Still registered (no error)
-    assert hass.services.has_service(DOMAIN, "brew_freestyle")
+        # Still registered (no error)
+        assert hass.services.has_service(DOMAIN, "brew_freestyle")
 
 
 # ---------------------------------------------------------------------------
