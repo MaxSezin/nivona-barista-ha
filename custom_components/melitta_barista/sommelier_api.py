@@ -177,7 +177,11 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_favorites_brew)
     websocket_api.async_register_command(hass, ws_history_list)
     websocket_api.async_register_command(hass, ws_history_clear)
+    websocket_api.async_register_command(hass, ws_bean_presets_list)
     websocket_api.async_register_command(hass, ws_presets_list)
+    websocket_api.async_register_command(hass, ws_presets_add)
+    websocket_api.async_register_command(hass, ws_presets_update)
+    websocket_api.async_register_command(hass, ws_presets_delete)
     websocket_api.async_register_command(hass, ws_settings_get)
     websocket_api.async_register_command(hass, ws_settings_set)
     websocket_api.async_register_command(hass, ws_extras_get)
@@ -983,38 +987,138 @@ async def ws_history_clear(
     connection.send_result(msg["id"], {"cleared": cleared})
 
 
-# ── Presets ───────────────────────────────────────────────────────────
+# ── Bean Presets (static catalogue from coffee_presets.json) ──────────
 
-_PRESETS_CACHE: list[dict[str, Any]] | None = None
+_BEAN_PRESETS_CACHE: list[dict[str, Any]] | None = None
 
 
-def _load_presets_sync() -> list[dict[str, Any]]:
-    """Read and parse the bundled presets JSON (blocking I/O)."""
+def _load_bean_presets_sync() -> list[dict[str, Any]]:
+    """Read and parse the bundled bean presets JSON (blocking I/O)."""
     presets_path = Path(__file__).parent / "coffee_presets.json"
     return json.loads(presets_path.read_text(encoding="utf-8"))
 
 
 @websocket_api.websocket_command(
+    {vol.Required("type"): "melitta_barista/sommelier/bean_presets/list"}
+)
+@websocket_api.async_response
+async def ws_bean_presets_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """List built-in coffee bean presets (cached; loaded via executor on first call)."""
+    global _BEAN_PRESETS_CACHE
+    if _BEAN_PRESETS_CACHE is None:
+        try:
+            _BEAN_PRESETS_CACHE = await hass.async_add_executor_job(
+                _load_bean_presets_sync
+            )
+        except Exception:
+            _LOGGER.exception("Failed to load bean presets")
+            connection.send_error(
+                msg["id"], "load_failed", "Bean preset list failed to load"
+            )
+            return
+    connection.send_result(msg["id"], {"presets": _BEAN_PRESETS_CACHE})
+
+
+# ── Sommelier Presets (R7 — user-defined preset templates) ────────────
+
+@websocket_api.websocket_command(
     {vol.Required("type"): "melitta_barista/sommelier/presets/list"}
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_presets_list(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """List built-in coffee presets (cached; loaded via executor on first call)."""
-    global _PRESETS_CACHE
-    if _PRESETS_CACHE is None:
-        try:
-            _PRESETS_CACHE = await hass.async_add_executor_job(_load_presets_sync)
-        except Exception:
-            _LOGGER.exception("Failed to load presets")
+    """List user-defined sommelier presets."""
+    db = await _async_get_db(hass)
+    presets = await db.async_list_presets()
+    connection.send_result(msg["id"], {"presets": presets})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "melitta_barista/sommelier/presets/add",
+        vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=80)),
+        vol.Optional("description"): vol.All(cv.string, vol.Length(max=500)),
+        vol.Required("payload"): dict,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_presets_add(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Create a new sommelier preset."""
+    db = await _async_get_db(hass)
+    preset_id = await db.async_add_preset(
+        msg["name"], msg.get("description"), msg["payload"]
+    )
+    connection.send_result(msg["id"], {"id": preset_id})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "melitta_barista/sommelier/presets/update",
+        vol.Required("preset_id"): cv.string,
+        vol.Optional("name"): vol.All(cv.string, vol.Length(min=1, max=80)),
+        vol.Optional("description"): vol.All(cv.string, vol.Length(max=500)),
+        vol.Optional("payload"): dict,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_presets_update(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Patch a sommelier preset's name / description / payload."""
+    db = await _async_get_db(hass)
+    patch = {k: msg[k] for k in ("name", "description", "payload") if k in msg}
+    try:
+        changed = await db.async_update_preset(msg["preset_id"], **patch)
+    except ValueError as exc:
+        if exc.args and exc.args[0] == "no_fields":
             connection.send_error(
-                msg["id"], "load_failed", "Preset list failed to load"
+                msg["id"], "no_fields", "Provide at least one field to update"
             )
             return
-    connection.send_result(msg["id"], {"presets": _PRESETS_CACHE})
+        connection.send_error(msg["id"], "invalid_update", str(exc))
+        return
+    if not changed:
+        connection.send_error(msg["id"], "not_found", "Preset not found")
+        return
+    connection.send_result(msg["id"], {"updated": True})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "melitta_barista/sommelier/presets/delete",
+        vol.Required("preset_id"): cv.string,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_presets_delete(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Delete a sommelier preset."""
+    db = await _async_get_db(hass)
+    deleted = await db.async_delete_preset(msg["preset_id"])
+    if not deleted:
+        connection.send_error(msg["id"], "not_found", "Preset not found")
+        return
+    connection.send_result(msg["id"], {"deleted": True})
 
 
 # ── Settings ──────────────────────────────────────────────────────────
