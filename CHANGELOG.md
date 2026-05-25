@@ -2,6 +2,19 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.64.0] — 2026-05-26
+
+### Added (P5a — Sommelier presets, R7 slice 1)
+- **Named presets for the Sommelier generate form.** Snapshot of `mode`, `preference`, `cup_size`, `moods`, `occasion`, `temperature`, `caffeine_pref`, and `dietary` — applied with one click from the new "Preset" select in the Sommelier header. Save the current form state via "Save as preset"; manage existing entries (rename, edit description, delete) via the new `<melitta-sommelier-presets>` modal.
+- **`sommelier_presets` table (DB v6 → v7).** Backed by four `melitta_barista/sommelier/presets/{list,add,update,delete}` WS endpoints (`require_admin`, opaque JSON payload, `preset_id` to avoid the HA WS top-level `id` collision).
+
+### Changed (incidental)
+- The pre-existing `melitta_barista/sommelier/presets/list` handler that served the static `coffee_presets.json` bean catalogue was renamed to `melitta_barista/sommelier/bean_presets/list` to free the namespace. No in-tree caller used the old name.
+
+### Notes
+- Pantry constraints (`allow_syrups` / `allow_toppings` / `allow_milk`) and per-generation `count` are intentionally **not** snapshotted — pantry tracks catalogue availability and count is a knob, both better picked fresh per generation.
+- System defaults, profile binding (R8), and the "dynamic occasion" toggle from §O7.1 are deferred.
+
 ## [0.63.0] — 2026-05-26
 
 ### Changed (P4b — Pantry, R6 closing slice)

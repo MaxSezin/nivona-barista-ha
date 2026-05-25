@@ -20,6 +20,7 @@ import { LitElement, html, css } from "../lit-base.js";
 import { t } from "../i18n.js";
 import "./melitta-sommelier-favorites.js";
 import "./melitta-sommelier-history.js";
+import "./melitta-sommelier-presets.js";
 import "./ui/melitta-star-rating.js";
 
 const MODES = [
@@ -71,6 +72,12 @@ class MelittaSommelier extends LitElement {
       _ratings: { state: true },
       _wizardSource: { state: true },
       _wizardSourceId: { state: true },
+      _presets: { state: true },
+      _presetsModalOpen: { state: true },
+      _saveAsOpen: { state: true },
+      _saveAsName: { state: true },
+      _saveAsDescription: { state: true },
+      _selectedPresetId: { state: true },
     };
   }
 
@@ -107,6 +114,12 @@ class MelittaSommelier extends LitElement {
     this._ratings = {};
     this._wizardSource = "generated";
     this._wizardSourceId = null;
+    this._presets = [];
+    this._presetsModalOpen = false;
+    this._saveAsOpen = false;
+    this._saveAsName = "";
+    this._saveAsDescription = "";
+    this._selectedPresetId = "";
   }
 
   /**
@@ -133,6 +146,103 @@ class MelittaSommelier extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this._loadAvailable();
+    this._loadPresets();
+  }
+
+  async _loadPresets() {
+    if (!this.hass) return;
+    try {
+      const result = await this.hass.callWS({
+        type: "melitta_barista/sommelier/presets/list",
+      });
+      this._presets = result.presets || [];
+    } catch (e) {
+      // Silent — presets are optional UI; log only.
+      // eslint-disable-next-line no-console
+      console.warn("[melitta-sommelier] presets list failed:", e);
+    }
+  }
+
+  /** Snapshot the form fields that get persisted in a preset payload. */
+  _serializeFormToPayload() {
+    return {
+      mode: this._mode,
+      preference: this._preference,
+      cup_size: this._cupSize,
+      moods: this._moods,
+      occasion: this._occasion,
+      temperature: this._temperature,
+      caffeine_pref: this._caffeine,
+      dietary: this._dietary,
+    };
+  }
+
+  /** Hydrate the form from a preset and surface a toast on apply. */
+  _applyPreset(preset) {
+    const p = preset.payload || {};
+    if (typeof p.mode === "string") this._mode = p.mode;
+    if (typeof p.preference === "string") this._preference = p.preference;
+    if (typeof p.cup_size === "string") this._cupSize = p.cup_size;
+    if (Array.isArray(p.moods)) this._moods = [...p.moods];
+    if (typeof p.occasion === "string") this._occasion = p.occasion;
+    if (typeof p.temperature === "string") this._temperature = p.temperature;
+    if (typeof p.caffeine_pref === "string") this._caffeine = p.caffeine_pref;
+    if (Array.isArray(p.dietary)) this._dietary = [...p.dietary];
+    this._showToast(this._t("presets.applied_toast", { name: preset.name }));
+  }
+
+  _showToast(message, kind = "info") {
+    try {
+      const toast = document.querySelector("melitta-panel")
+        ?.renderRoot?.querySelector?.("#toast")
+        || document.querySelector("melitta-toast");
+      toast?.show?.(message, kind);
+    } catch {
+      // Toast is best-effort UX — never break the flow if it's not mounted.
+    }
+  }
+
+  _onPresetSelectChange(e) {
+    const presetId = e.target.value;
+    this._selectedPresetId = presetId;
+    if (!presetId) return;
+    const preset = this._presets.find((p) => p.id === presetId);
+    if (preset) this._applyPreset(preset);
+  }
+
+  _openSaveAs() {
+    this._saveAsOpen = true;
+    this._saveAsName = "";
+    this._saveAsDescription = "";
+  }
+
+  _cancelSaveAs() {
+    this._saveAsOpen = false;
+    this._saveAsName = "";
+    this._saveAsDescription = "";
+  }
+
+  async _saveAsSubmit() {
+    const name = (this._saveAsName || "").trim();
+    if (!name) return;
+    try {
+      const payload = {
+        type: "melitta_barista/sommelier/presets/add",
+        name,
+        payload: this._serializeFormToPayload(),
+      };
+      if (this._saveAsDescription) payload.description = this._saveAsDescription;
+      await this.hass.callWS(payload);
+      this._cancelSaveAs();
+      await this._loadPresets();
+      this._showToast(this._t("presets.applied_toast", { name }), "success");
+    } catch (e) {
+      this._error = `${this._t("presets.save_failed")}: ${e.message || e}`;
+    }
+  }
+
+  _openPresetsModal() {
+    this._presetsModalOpen = true;
   }
 
   async _loadAvailable() {
@@ -323,6 +433,33 @@ class MelittaSommelier extends LitElement {
             ${this._generating ? this._t("common.loading") : this._t("sommelier.generate")}
           </button>
         </div>
+        <div class="preset-row">
+          <label>${this._t("presets.label")}:
+            <select .value=${this._selectedPresetId}
+              @change=${(e) => this._onPresetSelectChange(e)}>
+              <option value="">${this._t("presets.none")}</option>
+              ${this._presets.map((p) => html`
+                <option value=${p.id} ?selected=${p.id === this._selectedPresetId}>${p.name}</option>
+              `)}
+            </select>
+          </label>
+          <button class="ghost" @click=${() => this._openSaveAs()}>${this._t("presets.save_as")}</button>
+          <button class="ghost" @click=${() => this._openPresetsModal()}>${this._t("presets.manage")}</button>
+        </div>
+        ${this._saveAsOpen ? html`
+          <div class="save-as-panel">
+            <input type="text" placeholder=${this._t("presets.name")}
+                   .value=${this._saveAsName}
+                   @input=${(e) => { this._saveAsName = e.target.value; }} />
+            <textarea rows="2" placeholder=${this._t("presets.description")}
+                      .value=${this._saveAsDescription}
+                      @input=${(e) => { this._saveAsDescription = e.target.value; }}></textarea>
+            <div class="actions save-as-actions">
+              <button class="ghost" @click=${() => this._cancelSaveAs()}>${this._t("common.cancel")}</button>
+              <button class="primary" @click=${() => this._saveAsSubmit()}>${this._t("presets.save")}</button>
+            </div>
+          </div>
+        ` : ""}
         <div class="header-actions">
           <button class="ghost" @click=${() => this._openHistory()}>${this._t("sommelier.history_button")}</button>
           <button class="ghost" @click=${() => this._openFavorites()}>${this._t("sommelier.favorites_button")}</button>
@@ -626,6 +763,12 @@ class MelittaSommelier extends LitElement {
         @close=${() => { this._historyModalOpen = false; }}
         @brew=${(e) => this._onHistoryBrewRequested(e)}>
       </melitta-sommelier-history>
+      <melitta-sommelier-presets
+        .hass=${this.hass}
+        .lang=${this.lang}
+        ?open=${this._presetsModalOpen}
+        @close=${() => { this._presetsModalOpen = false; this._loadPresets(); }}>
+      </melitta-sommelier-presets>
     `;
   }
 
@@ -842,6 +985,83 @@ class MelittaSommelier extends LitElement {
         font-size: 13px;
       }
       .hint { color: var(--secondary-text-color); padding: 8px 0; font-size: 13px; }
+
+      .preset-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 4px;
+      }
+      .preset-row label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--secondary-text-color);
+      }
+      .preset-row select {
+        padding: 6px 10px;
+        border: 1px solid var(--divider-color);
+        border-radius: 4px;
+        background: var(--primary-background-color);
+        color: var(--primary-text-color);
+        font-size: 13px;
+        min-width: 160px;
+      }
+      .save-as-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 10px 12px;
+        border: 1px solid var(--divider-color);
+        border-radius: 4px;
+        background: var(--secondary-background-color);
+        margin-bottom: 4px;
+      }
+      .save-as-panel input,
+      .save-as-panel textarea {
+        padding: 6px 10px;
+        border: 1px solid var(--divider-color);
+        border-radius: 4px;
+        background: var(--primary-background-color);
+        color: var(--primary-text-color);
+        font-family: inherit;
+        font-size: 13px;
+        box-sizing: border-box;
+      }
+      .save-as-panel textarea { resize: vertical; min-height: 48px; }
+      .save-as-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .header-actions button.ghost,
+      .preset-row button.ghost,
+      .save-as-actions button.ghost {
+        background: transparent;
+        border: 1px solid var(--divider-color);
+        color: var(--secondary-text-color);
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .header-actions button.ghost:hover,
+      .preset-row button.ghost:hover,
+      .save-as-actions button.ghost:hover {
+        background: var(--secondary-background-color);
+      }
+      .save-as-actions button.primary {
+        background: var(--primary-color);
+        color: var(--text-primary-color);
+        border: none;
+        padding: 6px 14px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .save-as-actions button.primary:hover { opacity: 0.9; }
     `;
   }
 }
