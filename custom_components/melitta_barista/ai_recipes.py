@@ -301,15 +301,22 @@ def _build_prompt(
 
     # Steps section — explicit instruction to fill `steps` with the full
     # preparation sequence and dosages, not just the machine portion.
+    # NEW: LLM must tag each step with a phase (pre/during/post).
     steps_section = (
         "\n## Preparation steps\n"
         "Populate `steps` with the COMPLETE preparation sequence the user "
-        "must follow, in execution order. Include both the machine action "
-        "(e.g. \"Brew espresso\" with the dosage matching the first machine_phase) and "
-        "every manual step that follows: pouring milk, adding syrup, "
-        "topping with whipped cream, garnishing, etc. Each step must "
-        "carry an `amount` + `unit` when there is a quantity (\"15\" + "
-        "\"ml\", \"1\" + \"scoop\"); use null when the action is "
+        "must follow, in execution order. **Tag each step with its phase:**\n"
+        "\n"
+        "- `\"phase\": \"pre\"` — manual preparation BEFORE the machine starts "
+        "(selecting the cup, adding ice, scooping cocoa, measuring sugar).\n"
+        "- `\"phase\": \"during\"` — machine action OR a manual step that runs "
+        "concurrently with the brew (the machine command itself, or "
+        "\"hold the cup at 45°\"). This is the default.\n"
+        "- `\"phase\": \"post\"` — manual finalization AFTER the machine finishes "
+        "(topping with whipped cream, dusting, garnishing, stirring).\n"
+        "\n"
+        "Each step must carry an `amount` + `unit` when there is a quantity "
+        "(\"15\" + \"ml\", \"1\" + \"scoop\"); use null when the action is "
         "purely instructional (\"Stir for 10 seconds\")."
     )
 
@@ -406,7 +413,13 @@ Return ONLY a JSON array, no other text:
         "user_action_before": [{"order": 1, "action": "Place a 240ml cup under the spout"}]
       }
     ],
-    "steps": [{"order": 1, "action": "brew espresso"}],
+    "steps": [
+      {"order": 1, "phase": "pre", "action": "Take a 240ml ceramic mug"},
+      {"order": 2, "phase": "pre", "action": "Add ice cubes", "amount": 3, "unit": "cubes"},
+      {"order": 3, "phase": "during", "action": "Brew espresso shot"},
+      {"order": 4, "phase": "post", "action": "Top with cold milk", "amount": 80, "unit": "ml"},
+      {"order": 5, "phase": "post", "action": "Dust with cinnamon"}
+    ],
     "extras": {"ice": false, "syrup": null, "topping": null, "liqueur": null, "instruction": null},
     "cup_type": "mug",
     "estimated_caffeine": "medium",
