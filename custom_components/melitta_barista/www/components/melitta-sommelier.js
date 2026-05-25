@@ -61,6 +61,7 @@ class MelittaSommelier extends LitElement {
       _favoritedIds: { type: Array },
       _info: { type: String },
       _error: { type: String },
+      _capabilities: { state: true },
     };
   }
 
@@ -90,6 +91,7 @@ class MelittaSommelier extends LitElement {
     this._favoritedIds = [];
     this._info = "";
     this._error = "";
+    this._capabilities = null;
   }
 
   /**
@@ -136,6 +138,16 @@ class MelittaSommelier extends LitElement {
       if (this._allowMilk.length === 0) this._allowMilk = [...this._availableMilk];
     } catch (e) {
       this._error = `${this._t("sommelier.addins_load_failed")}: ${e.message || e}`;
+    }
+    // Fetch capabilities for UI gating. Failures are silent: no caps → no gating.
+    try {
+      const result = await this.hass.callWS({
+        type: "melitta_barista/capabilities/get",
+        entry_id: this.entryId,
+      });
+      this._capabilities = result?.capabilities || null;
+    } catch (e) {
+      this._capabilities = null;
     }
   }
 
@@ -296,10 +308,27 @@ class MelittaSommelier extends LitElement {
           <div class="field">
             <label>${this._t("sommelier.temperature_label")}</label>
             <div class="chips">
-              ${TEMPERATURES.map((t_) => html`
-                <button class=${this._temperature === t_ ? "chip on" : "chip"}
-                  @click=${() => { this._temperature = t_; }}>${this._t(`sommelier.temp.${t_}`)}</button>
-              `)}
+              ${TEMPERATURES.map((t_) => {
+                const caps = this._capabilities;
+                let supported = true;
+                if (caps && Array.isArray(caps.supported_temperatures)) {
+                  if (t_ === "auto") {
+                    supported = true;
+                  } else if (t_ === "hot") {
+                    supported = caps.supported_temperatures.includes("high")
+                              || caps.supported_temperatures.includes("normal");
+                  } else if (t_ === "iced") {
+                    supported = caps.supported_temperatures.includes("cold");
+                  }
+                }
+                const cls = (this._temperature === t_ ? "chip on" : "chip") + (supported ? "" : " disabled");
+                return html`
+                  <button class=${cls}
+                    ?disabled=${!supported}
+                    title=${supported ? "" : this._t("sommelier.gate.unsupported")}
+                    @click=${() => { if (supported) this._temperature = t_; }}>${this._t(`sommelier.temp.${t_}`)}</button>
+                `;
+              })}
             </div>
           </div>
 
@@ -582,6 +611,11 @@ class MelittaSommelier extends LitElement {
         background: var(--primary-color);
         color: var(--text-primary-color);
         border-color: var(--primary-color);
+      }
+      .chip.disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+        pointer-events: none;
       }
 
       .recipes {

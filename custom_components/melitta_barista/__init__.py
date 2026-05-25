@@ -829,7 +829,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.runtime_data = client
 
     # P1a — start a one-shot capabilities probe on first successful handshake.
-    sommelier_db = hass.data.get(DOMAIN, {}).get("sommelier_db")
+    # Eagerly initialize sommelier_db so the probe-on-connect callback
+    # actually registers (was lazy-init via WS in P1a, leaving the
+    # callback silently no-op'd on fresh setups).
+    from .sommelier_api import _async_get_db as _async_get_sommelier_db
+    sommelier_db = await _async_get_sommelier_db(hass)
     if sommelier_db is not None:
         client.add_connection_callback(
             _make_capabilities_probe_callback(hass, sommelier_db, client, entry.entry_id)

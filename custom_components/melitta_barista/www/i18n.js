@@ -182,6 +182,7 @@ const STRINGS = {
     "sommelier.temp.auto": "Auto",
     "sommelier.temp.hot": "Hot",
     "sommelier.temp.iced": "Iced",
+    "sommelier.gate.unsupported": "Not supported by this machine",
 
     "sommelier.caffeine.regular": "Regular",
     "sommelier.caffeine.low": "Low",
@@ -419,6 +420,7 @@ const STRINGS = {
     "sommelier.temp.auto": "Авто",
     "sommelier.temp.hot": "Горячий",
     "sommelier.temp.iced": "Холодный",
+    "sommelier.gate.unsupported": "Не поддерживается этой машиной",
 
     "sommelier.caffeine.regular": "Обычный",
     "sommelier.caffeine.low": "Низкий",

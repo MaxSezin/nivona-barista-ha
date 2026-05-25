@@ -470,6 +470,13 @@ async def ws_milk_set(
         vol.Optional("allow_syrups"): [cv.string],
         vol.Optional("allow_toppings"): [cv.string],
         vol.Optional("allow_milk"): [cv.string],
+        # B7 — per-request override of the conversation agent. Wins over
+        # settings.llm_agent_id (see `_resolve_agent_id` in panel_api).
+        vol.Optional("agent_id"): cv.string,
+        # R4/Task 5 — explicit config entry to scope LiveCapabilities lookup.
+        # Defaults to the first config entry when omitted (single-machine
+        # case). Multi-machine support will use this field.
+        vol.Optional("entry_id"): cv.string,
     }
 )
 @websocket_api.require_admin
@@ -585,12 +592,44 @@ async def ws_generate(
     # `sommelier_intro` in the panel prompt store). Falls back to the bundled
     # default inside _build_prompt when None.
     try:
-        from .panel_api import _resolve_prompt, _structured_call  # noqa: PLC0415
+        from .panel_api import (  # noqa: PLC0415
+            _resolve_agent_id,
+            _resolve_prompt,
+            _structured_call,
+        )
         from .ai_recipes import _build_prompt, _validate_recipes  # noqa: PLC0415
         intro = await _resolve_prompt(hass, "sommelier_intro")
     except Exception:  # noqa: BLE001
         intro = None
         from .ai_recipes import _validate_recipes  # noqa: PLC0415
+
+    # Fetch LiveCapabilities so the prompt enumerates only this machine's
+    # supported processes/intensities/etc. Cache hit -> use it; cache
+    # miss -> derive live from runtime_data; both-fail -> caps=None
+    # (fallback to legacy universal block).
+    caps = None
+    target_entry_id = msg.get("entry_id")
+    if target_entry_id is None:
+        # B1+X2 deferred: take the first config entry as today.
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if entries:
+            target_entry_id = entries[0].entry_id
+    if target_entry_id is not None:
+        row = await db.async_get_capabilities(target_entry_id)
+        if row is not None:
+            try:
+                from .capabilities import LiveCapabilities  # noqa: PLC0415
+                caps = LiveCapabilities.from_json(row["json_payload"])
+            except Exception:  # noqa: BLE001 — corrupt cache, fall through
+                caps = None
+        if caps is None:
+            entry = hass.config_entries.async_get_entry(target_entry_id)
+            if entry is not None and getattr(entry, "runtime_data", None) is not None:
+                try:
+                    from .capabilities import derive_capabilities  # noqa: PLC0415
+                    caps = derive_capabilities(entry.runtime_data)
+                except ValueError:
+                    caps = None
 
     # Build intro+context (without the legacy ## Output Format text block —
     # the JSON Schema is auto-appended by _structured_call instead).
@@ -620,6 +659,7 @@ async def ws_generate(
         # back to English if HA's language is unset for some reason.
         language=hass.config.language or "en",
         omit_output_format=True,
+        caps=caps,
     )
 
     try:
@@ -627,7 +667,7 @@ async def ws_generate(
             hass,
             slot="sommelier_intro",
             fmt_vars={"count": msg["count"], "mode": msg["mode"]},
-            agent_id=settings.get("llm_agent_id") or None,
+            agent_id=await _resolve_agent_id(hass, msg),
             ctx=connection.context(msg),
             prebuilt_prompt=prebuilt_prompt,
         )
