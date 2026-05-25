@@ -320,14 +320,18 @@ async def test_update_no_fields_still_errors(fresh_db_shim):
     assert args[1] == "no_fields"
 
 
-# ── P4a Task 2: set_available endpoint + user_extras mirror ───────────────
+# ── P4b: set_available endpoint (mirror removed) ───────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_set_available_endpoint_updates_catalogue_and_mirrors_to_user_extras(
+async def test_set_available_endpoint_toggles_catalogue_without_user_extras_mirror(
     fresh_db_shim,
 ):
-    """set_available toggles the catalogue row AND mirrors into user_extras."""
+    """set_available toggles the catalogue row and leaves user_extras untouched.
+
+    The P4a one-way mirror was removed in P4b because ws_generate now reads
+    the catalogue directly via async_get_pantry_extras.
+    """
     cursor = await fresh_db_shim._db.execute(
         "INSERT INTO syrups (name, brand, notes, available, created_at) "
         "VALUES (?, ?, ?, ?, ?)",
@@ -368,14 +372,12 @@ async def test_set_available_endpoint_updates_catalogue_and_mirrors_to_user_extr
     row = await cursor.fetchone()
     assert row[0] == 0
 
-    # user_extras mirror reflects the catalogue state.
+    # user_extras must remain untouched — no mirror in P4b.
     cursor = await fresh_db_shim._db.execute(
-        "SELECT available FROM user_extras WHERE category = ? AND item = ?",
+        "SELECT COUNT(*) FROM user_extras WHERE category = ? AND item = ?",
         ("syrups", "Vanilla"),
     )
-    row = await cursor.fetchone()
-    assert row is not None
-    assert row[0] == 0
+    assert (await cursor.fetchone())[0] == 0
 
 
 @pytest.mark.asyncio
@@ -411,8 +413,13 @@ async def test_set_available_unknown_id_returns_not_found(fresh_db_shim):
 
 
 @pytest.mark.asyncio
-async def test_set_available_enabling_inserts_into_user_extras(fresh_db_shim):
-    """Toggling an out-of-stock syrup back ON inserts a fresh user_extras row."""
+async def test_set_available_enabling_leaves_user_extras_alone(fresh_db_shim):
+    """Toggling an out-of-stock syrup ON flips the catalogue row only.
+
+    Previously (P4a) the mirror would also insert a user_extras row.
+    In P4b the AI reads the catalogue directly, so user_extras is no
+    longer touched by this endpoint.
+    """
     cursor = await fresh_db_shim._db.execute(
         "INSERT INTO syrups (name, brand, notes, available, created_at) "
         "VALUES (?, ?, ?, ?, ?)",
@@ -459,11 +466,9 @@ async def test_set_available_enabling_inserts_into_user_extras(fresh_db_shim):
     )
     assert (await cursor.fetchone())[0] == 1
 
-    # user_extras row freshly inserted with available=1.
+    # user_extras still empty for this item.
     cursor = await fresh_db_shim._db.execute(
-        "SELECT available FROM user_extras WHERE category = ? AND item = ?",
+        "SELECT COUNT(*) FROM user_extras WHERE category = ? AND item = ?",
         ("syrups", "Hazelnut"),
     )
-    row = await cursor.fetchone()
-    assert row is not None
-    assert row[0] == 1
+    assert (await cursor.fetchone())[0] == 0
