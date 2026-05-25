@@ -1131,6 +1131,7 @@ async def _ws_prompts_save(hass, connection, msg):
 @websocket_api.websocket_command({
     vol.Required("type"): "melitta_barista/prompts/preview",
     vol.Required("slot"): str,
+    vol.Optional("entry_id"): str,
 })
 @websocket_api.require_admin
 @websocket_api.async_response
@@ -1176,6 +1177,28 @@ async def _ws_prompts_preview(hass, connection, msg):
             milk_types = []
             extras = {}
         intro = await _resolve_prompt(hass, slot)
+        # When entry_id is provided, hydrate caps (cache → derive → None) so
+        # the preview matches what /sommelier/generate would actually produce.
+        caps = None
+        target_entry_id = msg.get("entry_id")
+        if target_entry_id is not None:
+            cap_db = hass.data.get(DOMAIN, {}).get("sommelier_db")
+            if cap_db is not None:
+                row = await cap_db.async_get_capabilities(target_entry_id)
+                if row is not None:
+                    try:
+                        from .capabilities import LiveCapabilities  # noqa: PLC0415
+                        caps = LiveCapabilities.from_json(row["json_payload"])
+                    except Exception:  # noqa: BLE001 — corrupt cache, fall through
+                        caps = None
+            if caps is None:
+                entry = hass.config_entries.async_get_entry(target_entry_id)
+                if entry is not None and getattr(entry, "runtime_data", None) is not None:
+                    try:
+                        from .capabilities import derive_capabilities  # noqa: PLC0415
+                        caps = derive_capabilities(entry.runtime_data)
+                    except ValueError:
+                        caps = None
         prebuilt = _build_prompt(
             hopper1_bean=(hoppers.get("hopper1") or {}).get("bean"),
             hopper2_bean=(hoppers.get("hopper2") or {}).get("bean"),
@@ -1186,6 +1209,7 @@ async def _ws_prompts_preview(hass, connection, msg):
             extras=extras or None,
             intro=intro,
             omit_output_format=True,
+            caps=caps,
         )
         schema = _schema_for(slot)
         if schema is not None:
