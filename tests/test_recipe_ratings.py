@@ -14,9 +14,9 @@ from custom_components.melitta_barista.sommelier_db import (
 
 
 @pytest.mark.asyncio
-async def test_schema_version_is_6():
-    """SCHEMA_VERSION bumped to 6."""
-    assert SCHEMA_VERSION == 6
+async def test_schema_version_is_7():
+    """SCHEMA_VERSION bumped to 7."""
+    assert SCHEMA_VERSION == 7
 
 
 @pytest.mark.asyncio
@@ -149,7 +149,7 @@ async def test_migration_from_v5_adds_recipe_ratings():
         async with aiosqlite.connect(db_path) as conn:
             cur = await conn.execute("SELECT value FROM settings WHERE key='schema_version'")
             row = await cur.fetchone()
-            assert row[0] == "6"
+            assert row[0] == str(SCHEMA_VERSION)
 
         await db.async_set_rating("b1", "generated", 4, None)
         assert (await db.async_get_rating("b1", "generated"))["rating"] == 4

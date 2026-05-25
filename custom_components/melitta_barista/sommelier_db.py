@@ -14,7 +14,7 @@ import aiosqlite
 
 _LOGGER = logging.getLogger("melitta_barista")
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _VALID_RATING_TARGET_TYPES = frozenset({"generated", "favorite"})
 
@@ -147,6 +147,15 @@ CREATE TABLE IF NOT EXISTS recipe_ratings (
   updated_at TEXT,
   PRIMARY KEY (target_id, target_type)
 );
+
+CREATE TABLE IF NOT EXISTS sommelier_presets (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  description  TEXT,
+  payload      TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT
+);
 """
 
 MIGRATE_V1_TO_V2 = """
@@ -243,6 +252,20 @@ CREATE TABLE IF NOT EXISTS recipe_ratings (
 );
 """
 
+# v6 → v7: add the `sommelier_presets` table for user-managed named templates
+# of the Sommelier "generate" form (R7 / P5a slice 1). User-managed only —
+# no built-in system presets and no profile binding in this slice.
+MIGRATE_V6_TO_V7 = """
+CREATE TABLE IF NOT EXISTS sommelier_presets (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  description  TEXT,
+  payload      TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT
+);
+"""
+
 INIT_HOPPERS_SQL = """
 INSERT OR IGNORE INTO hoppers (hopper_id, bean_id, assigned_at) VALUES (1, NULL, ?);
 INSERT OR IGNORE INTO hoppers (hopper_id, bean_id, assigned_at) VALUES (2, NULL, ?);
@@ -329,6 +352,8 @@ class SommelierDB:
                 migrations.append((5, MIGRATE_V4_TO_V5))
             if current_version < 6:
                 migrations.append((6, MIGRATE_V5_TO_V6))
+            if current_version < 7:
+                migrations.append((7, MIGRATE_V6_TO_V7))
             for target_version, sql in migrations:
                 for stmt in sql.strip().split(";"):
                     stmt = stmt.strip()
@@ -893,6 +918,85 @@ class SommelierDB:
             (now, fav_id),
         )
         await self.db.commit()
+
+    # ── Sommelier Presets ─────────────────────────────────────────────
+
+    async def async_list_presets(self) -> list[dict[str, Any]]:
+        """List all sommelier presets, ordered case-insensitively by name.
+
+        Each row dict is `{id, name, description, payload, created_at,
+        updated_at}` with ``payload`` parsed back from JSON to a dict.
+        ``description`` and ``updated_at`` may be ``None``.
+        """
+        cursor = await self.db.execute(
+            "SELECT id, name, description, payload, created_at, updated_at "
+            "FROM sommelier_presets ORDER BY LOWER(name)"
+        )
+        result: list[dict[str, Any]] = []
+        for row in await cursor.fetchall():
+            d = _row_to_dict(row)
+            d["payload"] = json.loads(d["payload"])
+            result.append(d)
+        return result
+
+    async def async_add_preset(
+        self, name: str, description: str | None, payload: dict
+    ) -> str:
+        """Insert a new sommelier preset and return its generated id."""
+        preset_id = _new_id()
+        now = _now()
+        await self.db.execute(
+            "INSERT INTO sommelier_presets "
+            "(id, name, description, payload, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (preset_id, name, description, json.dumps(payload), now),
+        )
+        await self.db.commit()
+        return preset_id
+
+    async def async_update_preset(self, preset_id: str, **fields) -> bool:
+        """Patch ``name``, ``description``, and/or ``payload`` on a preset.
+
+        At least one of the three fields must be supplied — an empty patch
+        raises ``ValueError("no_fields")``. ``payload`` is JSON-encoded when
+        present. ``updated_at`` is bumped on every successful update.
+        Returns True iff a row matched ``preset_id``.
+        """
+        name = fields.get("name")
+        description = fields.get("description")
+        payload = fields.get("payload")
+        if name is None and description is None and payload is None:
+            raise ValueError("no_fields")
+
+        set_parts: list[str] = []
+        params: list[Any] = []
+        if name is not None:
+            set_parts.append("name = ?")
+            params.append(name)
+        if description is not None:
+            set_parts.append("description = ?")
+            params.append(description)
+        if payload is not None:
+            set_parts.append("payload = ?")
+            params.append(json.dumps(payload))
+        set_parts.append("updated_at = ?")
+        params.append(_now())
+        params.append(preset_id)
+
+        cursor = await self.db.execute(
+            f"UPDATE sommelier_presets SET {', '.join(set_parts)} WHERE id = ?",  # nosec B608
+            params,
+        )
+        await self.db.commit()
+        return cursor.rowcount > 0
+
+    async def async_delete_preset(self, preset_id: str) -> bool:
+        """Delete a sommelier preset. Returns True iff a row was removed."""
+        cursor = await self.db.execute(
+            "DELETE FROM sommelier_presets WHERE id = ?", (preset_id,)
+        )
+        await self.db.commit()
+        return cursor.rowcount > 0
 
     # ── Recipe Ratings ────────────────────────────────────────────────
 
