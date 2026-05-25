@@ -2,6 +2,24 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.56.0] — 2026-05-25
+
+### Added
+- **Capability-driven LLM prompt (R4).** `_build_prompt` now accepts a `LiveCapabilities` object (from P1a) and emits the `## Machine Capabilities` section from the connected machine's actual supported set. Explicit instruction tells the LLM to ignore JSON-schema values not listed in this section. `ws_generate` fetches caps from the DB cache, falls back to live-derive, then to `None` (legacy universal block).
+- **Per-request `agent_id` override (B7).** `melitta_barista/sommelier/generate` WS now accepts an optional `agent_id` field; `_resolve_agent_id` is the single source of truth (msg.override > settings > HA default).
+- **Optional `entry_id` for `prompts/preview`.** Capability-aware prompt preview for development.
+
+### Changed
+- **Pydantic is now a mandatory dependency (B8).** `pydantic>=2.0` added to `manifest.json`. The `try/except ImportError` soft-degrade path is removed; `_PYDANTIC_OK` flag retired; `_schema_for` and `_validate_parsed` no longer guard against missing pydantic. In HA's runtime, pydantic v2 is always available — the degrade path was dead code.
+- **Eager `sommelier_db` initialization in `async_setup_entry`.** Fixes the P1a probe-on-connect caveat: capabilities cache is now populated on the very first handshake rather than only after a panel open.
+
+### UI
+- **`melitta-sommelier.js` capability-aware temperature chips.** Chips for `hot` / `iced` dim and disable when not supported by the connected machine. Tooltip ("Not supported by this machine" / "Не поддерживается этой машиной") explains why. New state field `_capabilities` populated via `melitta_barista/capabilities/get` at mount.
+
+### Notes
+- Dynamic-per-request pydantic models (`Literal[*supported_processes]`) explicitly deferred: the JSON schema still enumerates the universal set, but the Machine Capabilities section explicitly instructs the LLM to ignore schema values not listed. Pragmatic — re-evaluate if LLM compliance turns out poor.
+- Cup-size / mood / occasion / caffeine / dietary chips are UI-only conventions (no direct machine mapping) — not gated against capabilities.
+
 ## [0.55.0] — 2026-05-25
 
 ### Added
