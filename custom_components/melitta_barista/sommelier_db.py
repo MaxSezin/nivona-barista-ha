@@ -18,6 +18,8 @@ SCHEMA_VERSION = 6
 
 _VALID_RATING_TARGET_TYPES = frozenset({"generated", "favorite"})
 
+_ALLOWED_FAVORITE_UPDATE_FIELDS = frozenset({"name", "description", "note"})
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS coffee_beans (
     id              TEXT PRIMARY KEY,
@@ -794,6 +796,47 @@ class SommelierDB:
         )
         await self.db.commit()
         return cursor.rowcount > 0
+
+    async def async_update_favorite(self, favorite_id: str, **patch) -> bool:
+        """Patch favorite fields. Returns True if any change was applied.
+
+        Allowed: name, description, note. Note routes through recipe_ratings
+        (favorite target_type) — requires an existing rating row.
+        """
+        if not patch:
+            return False
+        for k in patch:
+            if k not in _ALLOWED_FAVORITE_UPDATE_FIELDS:
+                raise ValueError(
+                    f"field {k!r} not in allowed update set: "
+                    f"{sorted(_ALLOWED_FAVORITE_UPDATE_FIELDS)}"
+                )
+        rows_changed = False
+        db_columns = {k: v for k, v in patch.items() if k in {"name", "description"}}
+        if db_columns:
+            set_clause = ", ".join(f"{c} = ?" for c in db_columns)
+            params = list(db_columns.values()) + [favorite_id]
+            async with self._lock:
+                cur = await self._db.execute(
+                    f"UPDATE favorites SET {set_clause} WHERE id = ?",  # nosec B608
+                    params,
+                )
+                await self._db.commit()
+                rows_changed = cur.rowcount > 0
+        if "note" in patch:
+            note_value = patch["note"]
+            existing = await self.async_get_rating(favorite_id, "favorite")
+            if existing is None:
+                raise ValueError(
+                    "cannot set note without a rating; call recipe/rate first"
+                )
+            await self.async_set_rating(
+                favorite_id, "favorite",
+                int(existing["rating"]),
+                note_value,
+            )
+            rows_changed = True
+        return rows_changed
 
     async def async_increment_favorite_brew(self, fav_id: str) -> None:
         """Increment brew count for a favorite."""

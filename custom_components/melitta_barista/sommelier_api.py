@@ -173,6 +173,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_favorites_list)
     websocket_api.async_register_command(hass, ws_favorites_add)
     websocket_api.async_register_command(hass, ws_favorites_remove)
+    websocket_api.async_register_command(hass, ws_favorites_update)
     websocket_api.async_register_command(hass, ws_favorites_brew)
     websocket_api.async_register_command(hass, ws_history_list)
     websocket_api.async_register_command(hass, ws_presets_list)
@@ -864,6 +865,33 @@ async def ws_favorites_remove(
         connection.send_error(msg["id"], "not_found", "Favorite not found")
         return
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "melitta_barista/sommelier/favorites/update",
+    vol.Required("favorite_id"): cv.string,
+    vol.Optional("name"): cv.string,
+    vol.Optional("description"): cv.string,
+    vol.Optional("note"): vol.Any(cv.string, None),
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_favorites_update(hass, connection, msg) -> None:
+    """Patch a favorite's name / description / note."""
+    db = await _async_get_db(hass)
+    patch = {k: msg[k] for k in ("name", "description", "note") if k in msg}
+    if not patch:
+        connection.send_error(msg["id"], "no_fields", "no fields to update")
+        return
+    try:
+        changed = await db.async_update_favorite(msg["favorite_id"], **patch)
+    except ValueError as exc:
+        connection.send_error(msg["id"], "invalid_update", str(exc))
+        return
+    if not changed:
+        connection.send_error(msg["id"], "not_found", f"favorite {msg['favorite_id']} not found")
+        return
+    connection.send_result(msg["id"], {})
 
 
 @websocket_api.websocket_command(
