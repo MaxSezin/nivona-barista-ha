@@ -2,6 +2,22 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.58.0] — 2026-05-25
+
+### Added
+- **`<melitta-brew-wizard>` component (R3).** Pre/during/post-brew wizard opened from "Brew this" in the Sommelier panel. The pre phase lists user prep steps (cup choice, ice, additive measurement) and the chosen cup type. The during phase fires the BLE brew, animates a progress bar driven by an estimated duration, and polls `melitta_barista/status` every 2 s to auto-advance when the machine returns to READY. The post phase lists finishing-touch steps and the recipe's `extras.instruction` text. Cancel / "I'm done" buttons keep the wizard usable in offline / no-poll modes.
+- **`RecipeStep.phase` field** (`Literal["pre", "during", "post"]`, default `"during"`). LLM is now explicitly instructed to phase-tag each step; the wizard splits steps by this field. Recipes without phase fields (legacy or LLM oversight) all render as during-brew steps, matching prior behaviour.
+- **Estimated brew duration heuristic** (`estimateBrewSeconds(recipe)` in `melitta-brew-wizard.js`). Frontend-side formula: `8 s warmup + portion_ml / 50 × 5 s` per phase. Conservative; drives the progress bar saturation at 95 % and the manual-finish-button timeout (`estimated + 30 s`).
+
+### Changed
+- **Sommelier "Brew this" no longer fires `melitta_barista/sommelier/brew` directly.** Instead it opens the wizard, which orchestrates the brew call when the user clicks "Start brewing" in the pre phase. The user-facing latency between click and machine starting is roughly the same; the wizard adds explicit phases and the option to back out before any BLE write fires.
+- **`ws_favorites_add` now stores `machine_phases`** alongside legacy `component1`/`component2` (closes a pre-existing bug where `ws_favorites_brew` read `machine_phases` but `ws_favorites_add` only stored the old shape).
+
+### Notes
+- WS status pushing is NOT in scope — the wizard polls `melitta_barista/status` instead. A future P2c / P3+ may introduce a proper push subscription if poll-latency becomes a UX bottleneck.
+- Sequential per-phase brewing with explicit user-action pauses between machine phases is deferred to **P2c**. For multi-phase recipes today, the BLE protocol still fires both components in a single `brew_freestyle` call (the machine sequences them internally without exposing the gap to the host).
+- TTS / voice-prompted wizard steps are explicitly out of scope.
+
 ## [0.57.0] — 2026-05-25
 
 ### Changed (data-model migration)
