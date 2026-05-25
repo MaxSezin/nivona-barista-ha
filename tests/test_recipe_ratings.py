@@ -154,6 +154,8 @@ async def test_migration_from_v5_adds_recipe_ratings():
         await db.async_set_rating("b1", "generated", 4, None)
         assert (await db.async_get_rating("b1", "generated"))["rating"] == 4
 
+        await db.async_close()
+
 
 # ── List endpoint enrichment (P3a Task 5) ─────────────────────────────
 
