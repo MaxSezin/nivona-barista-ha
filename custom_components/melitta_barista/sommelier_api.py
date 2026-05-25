@@ -470,6 +470,9 @@ async def ws_milk_set(
         vol.Optional("allow_syrups"): [cv.string],
         vol.Optional("allow_toppings"): [cv.string],
         vol.Optional("allow_milk"): [cv.string],
+        # B7 — per-request override of the conversation agent. Wins over
+        # settings.llm_agent_id (see `_resolve_agent_id` in panel_api).
+        vol.Optional("agent_id"): cv.string,
     }
 )
 @websocket_api.require_admin
@@ -585,7 +588,11 @@ async def ws_generate(
     # `sommelier_intro` in the panel prompt store). Falls back to the bundled
     # default inside _build_prompt when None.
     try:
-        from .panel_api import _resolve_prompt, _structured_call  # noqa: PLC0415
+        from .panel_api import (  # noqa: PLC0415
+            _resolve_agent_id,
+            _resolve_prompt,
+            _structured_call,
+        )
         from .ai_recipes import _build_prompt, _validate_recipes  # noqa: PLC0415
         intro = await _resolve_prompt(hass, "sommelier_intro")
     except Exception:  # noqa: BLE001
@@ -627,7 +634,7 @@ async def ws_generate(
             hass,
             slot="sommelier_intro",
             fmt_vars={"count": msg["count"], "mode": msg["mode"]},
-            agent_id=settings.get("llm_agent_id") or None,
+            agent_id=await _resolve_agent_id(hass, msg),
             ctx=connection.context(msg),
             prebuilt_prompt=prebuilt_prompt,
         )
