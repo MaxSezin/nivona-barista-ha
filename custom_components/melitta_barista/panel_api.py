@@ -937,13 +937,16 @@ class RecipeStep(BaseModel):
     `action` is a short imperative ("Brew espresso", "Add syrup",
     "Pour foamed milk"). `ingredient` names what is being added /
     used. `amount` + `unit` give the dosage (e.g. 15 + "ml", 2 +
-    "scoops"). `notes` carries timing or technique hints. The
-    whole list gives the user a full recipe — what to do after the
-    machine drops its part.
+    "scoops"). `notes` carries timing or technique hints. `phase`
+    tags the step's lifecycle: "pre" (before machine starts), "during"
+    (machine action or concurrent manual step, default), or "post"
+    (after machine finishes). The whole list gives the user a full
+    recipe — what to do before, during, and after the machine brew.
     """
 
     order: int = Field(ge=1)
     action: str = Field(min_length=1)
+    phase: Literal["pre", "during", "post"] = "during"
     ingredient: str | None = None
     amount: float | None = None
     unit: str | None = None

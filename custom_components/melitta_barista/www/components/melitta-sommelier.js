@@ -62,6 +62,7 @@ class MelittaSommelier extends LitElement {
       _info: { type: String },
       _error: { type: String },
       _capabilities: { state: true },
+      _wizardRecipe: { state: true },
     };
   }
 
@@ -92,6 +93,7 @@ class MelittaSommelier extends LitElement {
     this._info = "";
     this._error = "";
     this._capabilities = null;
+    this._wizardRecipe = null;
   }
 
   /**
@@ -200,22 +202,15 @@ class MelittaSommelier extends LitElement {
     }
   }
 
-  async _brew(recipeId) {
-    this._brewing = recipeId;
-    this._info = this._t("sommelier.brewing");
-    this._error = "";
-    try {
-      await this.hass.callWS({
-        type: "melitta_barista/sommelier/brew",
-        recipe_id: recipeId,
-      });
-      this._info = this._t("sommelier.brew_ok");
-    } catch (e) {
-      this._error = `${this._t("sommelier.brew_failed")}: ${e.message || e}`;
-      this._info = "";
-    } finally {
-      this._brewing = "";
+  _brew(recipeId) {
+    const session = this._session || {};
+    const recipes = session.recipes || [];
+    const recipe = recipes.find((r) => r.id === recipeId);
+    if (!recipe) {
+      this._error = this._t("sommelier.recipe_not_found");
+      return;
     }
+    this._wizardRecipe = recipe;
   }
 
   async _favorite(recipeId) {
@@ -525,6 +520,14 @@ class MelittaSommelier extends LitElement {
         ${this._info ? html`<div class="info">${this._info}</div>` : ""}
         ${this._renderRecipes()}
       </section>
+      <melitta-brew-wizard
+        .hass=${this.hass}
+        .entryId=${this.entryId}
+        .lang=${this.lang}
+        .recipe=${this._wizardRecipe}
+        ?open=${this._wizardRecipe !== null}
+        @close=${() => { this._wizardRecipe = null; }}>
+      </melitta-brew-wizard>
     `;
   }
 
