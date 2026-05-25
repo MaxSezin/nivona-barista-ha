@@ -316,25 +316,37 @@ async def ws_capabilities_get(hass, connection, msg) -> None:
     if db is not None:
         row = await db.async_get_capabilities(entry_id)
         if row is not None:
-            cap = LiveCapabilities.from_json(row["json_payload"])
-            connection.send_result(msg["id"], {
-                "schema_version": 1,
-                "entry_id": entry_id,
-                "source": "cache",
-                "probed_at": row["probed_at"],
-                "capabilities": {
-                    "family_key": cap.family_key,
-                    "model_name": cap.model_name,
-                    "supported_processes": list(cap.supported_processes),
-                    "supported_intensities": list(cap.supported_intensities),
-                    "supported_aromas": list(cap.supported_aromas),
-                    "supported_temperatures": list(cap.supported_temperatures),
-                    "supported_shots": list(cap.supported_shots),
-                    "portion_limits": cap.portion_limits,
-                    "forbidden_combinations": list(cap.forbidden_combinations),
-                },
-            })
-            return
+            try:
+                cap = LiveCapabilities.from_json(row["json_payload"])
+            except (ValueError, json.JSONDecodeError):
+                # Corrupt DB row or future-schema payload — fall through
+                # to the live-derive path so the user is never blocked by
+                # a stale cache. The on-connect probe will eventually
+                # rewrite the row on next handshake.
+                _LOGGER.warning(
+                    "stale or corrupt cached capabilities for entry %s; "
+                    "falling back to live derive",
+                    entry_id,
+                )
+            else:
+                connection.send_result(msg["id"], {
+                    "schema_version": 1,
+                    "entry_id": entry_id,
+                    "source": "cache",
+                    "probed_at": row["probed_at"],
+                    "capabilities": {
+                        "family_key": cap.family_key,
+                        "model_name": cap.model_name,
+                        "supported_processes": list(cap.supported_processes),
+                        "supported_intensities": list(cap.supported_intensities),
+                        "supported_aromas": list(cap.supported_aromas),
+                        "supported_temperatures": list(cap.supported_temperatures),
+                        "supported_shots": list(cap.supported_shots),
+                        "portion_limits": cap.portion_limits,
+                        "forbidden_combinations": list(cap.forbidden_combinations),
+                    },
+                })
+                return
 
     # 2) Fallback: derive live from runtime_data.
     entry = hass.config_entries.async_get_entry(entry_id)

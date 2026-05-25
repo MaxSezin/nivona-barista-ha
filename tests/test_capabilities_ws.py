@@ -135,3 +135,64 @@ async def test_returns_error_when_entry_unknown():
     connection.send_error.assert_called_once()
     assert connection.send_error.call_args.args[0] == 4
     connection.send_result.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cache_with_corrupt_payload_falls_back_to_derive():
+    """A DB row with invalid JSON or unsupported schema_version falls through to derive."""
+    from custom_components.melitta_barista.brands.base import MachineCapabilities
+
+    caps = MachineCapabilities(
+        family_key="barista_t",
+        model_name="Melitta Barista T",
+        supports_recipe_writes=True,
+        supports_stats=True,
+        my_coffee_slots=4,
+        strength_levels=5,
+        has_aroma_balance=True,
+        image_transfer=None,
+        fluid_scale_factor=1,
+        brew_command_mode=0x0B,
+        recipe_text_encoding="utf16_le",
+        tolerated_brew_manipulations=(),
+        recipes=(),
+        settings=(),
+        stats=(),
+    )
+
+    client = MagicMock()
+    client._capabilities = caps
+
+    entry = MagicMock()
+    entry.entry_id = "entry_corrupt"
+    entry.runtime_data = client
+
+    hass = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_get_entry = MagicMock(return_value=entry)
+
+    db = MagicMock()
+    # DB returns a row whose JSON is corrupt — this MUST not crash the handler.
+    db.async_get_capabilities = AsyncMock(return_value={
+        "entry_id": "entry_corrupt",
+        "json_payload": "{not valid json",
+        "probed_at": "2026-05-25T10:00:00+00:00",
+        "schema_version": 1,
+    })
+    hass.data = {"melitta_barista": {"sommelier_db": db}}
+
+    connection = MagicMock()
+    connection.send_result = MagicMock()
+    connection.send_error = MagicMock()
+
+    await ws_capabilities_get(
+        hass, connection,
+        {"id": 11, "type": "melitta_barista/capabilities/get", "entry_id": "entry_corrupt"},
+    )
+
+    # Must have fallen through to derive, not crashed and not send_error
+    connection.send_error.assert_not_called()
+    connection.send_result.assert_called_once()
+    result = connection.send_result.call_args.args[1]
+    assert result["source"] == "derive"
+    assert result["capabilities"]["family_key"] == "barista_t"
