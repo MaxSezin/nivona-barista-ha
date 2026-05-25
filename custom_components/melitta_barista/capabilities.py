@@ -62,3 +62,69 @@ class LiveCapabilities:
             portion_limits=dict(data.get("portion_limits", {})),
             forbidden_combinations=tuple(data.get("forbidden_combinations", ())),
         )
+
+
+from .const import (
+    AROMA_MAP,
+    INTENSITY_MAP,
+    PROCESS_MAP,
+    SHOTS_MAP,
+    TEMPERATURE_MAP,
+)
+
+# Global portion default for P1a — protocol-wide range from service schema.
+# In future plans, per-process / per-family overrides will land here.
+_DEFAULT_PORTION_LIMITS: dict[str, int] = {"min": 0, "max": 250, "step": 5}
+
+
+def derive_capabilities(client: Any) -> LiveCapabilities:
+    """Build LiveCapabilities from the client's static brand profile + const maps.
+
+    P1a: no live BLE probing — the builder returns the enumeration of
+    everything the family declares it supports through MachineCapabilities
+    (e.g. `strength_levels=5` -> all 5 intensity steps; `has_aroma_balance=False`
+    -> only 'standard'). portion_limits gets a global default; per-process
+    overrides are a stretch goal for P1b+.
+    """
+    caps = getattr(client, "_capabilities", None)
+    if caps is None:
+        raise ValueError(
+            "client has no capabilities (MachineCapabilities is None); "
+            "cannot derive — connect first",
+        )
+
+    # Intensities: ordered enum list, sliced to the family's strength_levels.
+    all_intensities = sorted(INTENSITY_MAP.keys(), key=lambda k: INTENSITY_MAP[k])
+    if caps.strength_levels == 5:
+        intensities = tuple(all_intensities)
+    elif caps.strength_levels == 3:
+        # Center three steps for 3-level machines (mild/medium/strong).
+        intensities = tuple(all_intensities[1:4])
+    else:
+        # Unknown — fall back to the full set.
+        intensities = tuple(all_intensities)
+
+    # Aromas: full set if has_aroma_balance, else just 'standard'.
+    if caps.has_aroma_balance:
+        aromas = tuple(sorted(AROMA_MAP.keys(), key=lambda k: AROMA_MAP[k]))
+    else:
+        aromas = ("standard",)
+
+    processes = tuple(sorted(PROCESS_MAP.keys(), key=lambda k: PROCESS_MAP[k]))
+    temperatures = tuple(sorted(TEMPERATURE_MAP.keys(), key=lambda k: TEMPERATURE_MAP[k]))
+    shots = tuple(sorted(SHOTS_MAP.keys(), key=lambda k: SHOTS_MAP[k]))
+
+    portion_limits = {p: dict(_DEFAULT_PORTION_LIMITS) for p in processes if p != "none"}
+
+    return LiveCapabilities(
+        schema_version=1,
+        family_key=caps.family_key,
+        model_name=caps.model_name,
+        supported_processes=processes,
+        supported_intensities=intensities,
+        supported_aromas=aromas,
+        supported_temperatures=temperatures,
+        supported_shots=shots,
+        portion_limits=portion_limits,
+        forbidden_combinations=(),
+    )
