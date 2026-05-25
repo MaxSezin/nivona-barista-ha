@@ -23,6 +23,7 @@ await Promise.all([
   import(`./components/melitta-sommelier.js${_q}`),
   import(`./components/melitta-sommelier-favorites.js${_q}`),
   import(`./components/melitta-sommelier-history.js${_q}`),
+  import(`./components/melitta-sommelier-presets.js${_q}`),
   import(`./components/melitta-brew-wizard.js${_q}`),
   import(`./components/ui/melitta-star-rating.js${_q}`),
   import(`./components/melitta-settings.js${_q}`),
