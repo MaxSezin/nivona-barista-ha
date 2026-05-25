@@ -2,6 +2,11 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.54.1] — 2026-05-25
+
+### Changed
+- **HACS download counter enabled.** `hacs.json` now declares `zip_release: true` + `filename: melitta_barista.zip`. New `.github/workflows/release.yml` builds a release zip and uploads it as an asset on every published GitHub Release. Previously HACS fell back to the GitHub Contents API (which doesn't increment any download counter), so the badge in HACS UI always showed 0 / "unknown". Existing installs are unaffected — HACS will simply pull the zip on next update instead of fetching files individually. Old releases (pre-0.54.1) still have no asset and will not retroactively gain a counter; only v0.54.1+ will count.
+
 ## [0.54.0] — 2026-05-25
 
 ### Added

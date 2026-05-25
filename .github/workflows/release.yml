@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  release-zip:
+    name: Build and upload release zip
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync version in manifest.json with release tag
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Release tag → version: $VERSION"
+          jq --arg v "$VERSION" '.version = $v' \
+            custom_components/melitta_barista/manifest.json > /tmp/manifest.json
+          mv /tmp/manifest.json custom_components/melitta_barista/manifest.json
+
+      - name: Create zip
+        working-directory: custom_components/melitta_barista
+        run: zip -r ../../melitta_barista.zip .
+
+      - name: Upload zip to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: melitta_barista.zip
