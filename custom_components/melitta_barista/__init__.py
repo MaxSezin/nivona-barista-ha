@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import pathlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -712,6 +712,43 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _make_capabilities_probe_callback(
+    hass: HomeAssistant,
+    db: Any,
+    client: Any,
+    entry_id: str,
+) -> Callable[[bool], None]:
+    """Build a connection callback that probes + caches capabilities on connect.
+
+    Probing is "static" in P1a — `derive_capabilities` reads the client's
+    brand profile + const maps, no new BLE round-trips. The work is dispatched
+    via `hass.async_create_task` so the synchronous callback returns fast and
+    does not block the existing connection-callbacks fan-out in ble_client.
+    """
+    from .capabilities import derive_capabilities
+
+    async def _probe_and_save() -> None:
+        try:
+            cap = derive_capabilities(client)
+        except ValueError:
+            _LOGGER.debug("capabilities probe skipped: client has no capabilities")
+            return
+        except Exception:  # noqa: BLE001 — never propagate from a callback
+            _LOGGER.exception("capabilities probe failed")
+            return
+        try:
+            await db.async_save_capabilities(entry_id, cap.to_json())
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("capabilities save failed for entry %s", entry_id)
+
+    def _on_connect(connected: bool) -> None:
+        if not connected:
+            return
+        hass.async_create_task(_probe_and_save())
+
+    return _on_connect
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up a coffee-machine integration from a config entry."""
     from .brands import get_profile  # noqa: PLC0415
@@ -790,6 +827,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     entry.runtime_data = client
+
+    # P1a — start a one-shot capabilities probe on first successful handshake.
+    sommelier_db = hass.data.get(DOMAIN, {}).get("sommelier_db")
+    if sommelier_db is not None:
+        client.add_connection_callback(
+            _make_capabilities_probe_callback(hass, sommelier_db, client, entry.entry_id)
+        )
 
     # Wire the recovery callback so the reconnect loop can reload the
     # ESPHome proxy entry after N consecutive failed connect()s. The

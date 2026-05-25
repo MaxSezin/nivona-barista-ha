@@ -143,6 +143,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_beans_delete)
     websocket_api.async_register_command(hass, ws_hoppers_get)
     websocket_api.async_register_command(hass, ws_hoppers_assign)
+    websocket_api.async_register_command(hass, ws_capabilities_get)
     websocket_api.async_register_command(hass, ws_milk_get)
     websocket_api.async_register_command(hass, ws_milk_set)
     websocket_api.async_register_command(hass, ws_generate)
@@ -290,6 +291,93 @@ async def ws_hoppers_get(
     db = await _async_get_db(hass)
     hoppers = await db.async_get_hoppers()
     connection.send_result(msg["id"], hoppers)
+
+
+# ── Capabilities ──────────────────────────────────────────────────────
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "melitta_barista/capabilities/get",
+    vol.Required("entry_id"): cv.string,
+})
+@websocket_api.async_response
+async def ws_capabilities_get(hass, connection, msg) -> None:
+    """Return the live capabilities for a config entry.
+
+    Strategy: read the cached row from sommelier DB. If absent, fall back
+    to deriving on-the-fly from runtime_data (no DB write, since this is
+    a read endpoint — the on-connect callback handles persistence).
+    """
+    from .capabilities import LiveCapabilities, derive_capabilities
+
+    entry_id = msg["entry_id"]
+    db = hass.data.get(DOMAIN, {}).get("sommelier_db")
+
+    # 1) Try DB cache.
+    if db is not None:
+        row = await db.async_get_capabilities(entry_id)
+        if row is not None:
+            try:
+                cap = LiveCapabilities.from_json(row["json_payload"])
+            except (ValueError, json.JSONDecodeError):
+                # Corrupt DB row or future-schema payload — fall through
+                # to the live-derive path so the user is never blocked by
+                # a stale cache. The on-connect probe will eventually
+                # rewrite the row on next handshake.
+                _LOGGER.warning(
+                    "stale or corrupt cached capabilities for entry %s; "
+                    "falling back to live derive",
+                    entry_id,
+                )
+            else:
+                connection.send_result(msg["id"], {
+                    "schema_version": 1,
+                    "entry_id": entry_id,
+                    "source": "cache",
+                    "probed_at": row["probed_at"],
+                    "capabilities": {
+                        "family_key": cap.family_key,
+                        "model_name": cap.model_name,
+                        "supported_processes": list(cap.supported_processes),
+                        "supported_intensities": list(cap.supported_intensities),
+                        "supported_aromas": list(cap.supported_aromas),
+                        "supported_temperatures": list(cap.supported_temperatures),
+                        "supported_shots": list(cap.supported_shots),
+                        "portion_limits": cap.portion_limits,
+                        "forbidden_combinations": list(cap.forbidden_combinations),
+                    },
+                })
+                return
+
+    # 2) Fallback: derive live from runtime_data.
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or entry.runtime_data is None:
+        connection.send_error(msg["id"], "entry_not_found",
+                              f"no live client for entry_id={entry_id}")
+        return
+
+    try:
+        cap = derive_capabilities(entry.runtime_data)
+    except ValueError as exc:
+        connection.send_error(msg["id"], "client_not_ready", str(exc))
+        return
+
+    connection.send_result(msg["id"], {
+        "schema_version": 1,
+        "entry_id": entry_id,
+        "source": "derive",
+        "probed_at": None,
+        "capabilities": {
+            "family_key": cap.family_key,
+            "model_name": cap.model_name,
+            "supported_processes": list(cap.supported_processes),
+            "supported_intensities": list(cap.supported_intensities),
+            "supported_aromas": list(cap.supported_aromas),
+            "supported_temperatures": list(cap.supported_temperatures),
+            "supported_shots": list(cap.supported_shots),
+            "portion_limits": cap.portion_limits,
+            "forbidden_combinations": list(cap.forbidden_combinations),
+        },
+    })
 
 
 @websocket_api.websocket_command(

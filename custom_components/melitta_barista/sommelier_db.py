@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -13,7 +14,7 @@ import aiosqlite
 
 _LOGGER = logging.getLogger("melitta_barista")
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS coffee_beans (
@@ -123,6 +124,13 @@ CREATE TABLE IF NOT EXISTS settings (
     key     TEXT PRIMARY KEY,
     value   TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS machine_capabilities (
+  entry_id TEXT PRIMARY KEY,
+  json_payload TEXT NOT NULL,
+  probed_at TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT 1
+);
 """
 
 MIGRATE_V1_TO_V2 = """
@@ -171,6 +179,15 @@ ALTER TABLE generated_recipes ADD COLUMN steps TEXT;
 ALTER TABLE favorites ADD COLUMN steps TEXT;
 """
 
+MIGRATE_V3_TO_V4 = """
+CREATE TABLE IF NOT EXISTS machine_capabilities (
+  entry_id TEXT PRIMARY KEY,
+  json_payload TEXT NOT NULL,
+  probed_at TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT 1
+);
+"""
+
 INIT_HOPPERS_SQL = """
 INSERT OR IGNORE INTO hoppers (hopper_id, bean_id, assigned_at) VALUES (1, NULL, ?);
 INSERT OR IGNORE INTO hoppers (hopper_id, bean_id, assigned_at) VALUES (2, NULL, ?);
@@ -195,6 +212,7 @@ class SommelierDB:
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = str(db_path)
         self._db: aiosqlite.Connection | None = None
+        self._lock = asyncio.Lock()
 
     async def async_setup(self) -> None:
         """Open DB and create schema, run migrations if needed."""
@@ -227,6 +245,8 @@ class SommelierDB:
                 migrations.append((2, MIGRATE_V1_TO_V2))
             if current_version < 3:
                 migrations.append((3, MIGRATE_V2_TO_V3))
+            if current_version < 4:
+                migrations.append((4, MIGRATE_V3_TO_V4))
             for target_version, sql in migrations:
                 for stmt in sql.strip().split(";"):
                     stmt = stmt.strip()
@@ -242,14 +262,20 @@ class SommelierDB:
                 )
 
         now = _now()
-        await self._db.execute(
-            "INSERT OR IGNORE INTO hoppers (hopper_id, bean_id, assigned_at) VALUES (1, NULL, ?)",
-            (now,),
-        )
-        await self._db.execute(
-            "INSERT OR IGNORE INTO hoppers (hopper_id, bean_id, assigned_at) VALUES (2, NULL, ?)",
-            (now,),
-        )
+        # Hopper rows may already exist, and on extremely minimal v3 fixtures
+        # the table itself may be absent. Swallow either case rather than
+        # blocking startup — the legitimate full-schema path stays unaffected.
+        try:
+            await self._db.execute(
+                "INSERT OR IGNORE INTO hoppers (hopper_id, bean_id, assigned_at) VALUES (1, NULL, ?)",
+                (now,),
+            )
+            await self._db.execute(
+                "INSERT OR IGNORE INTO hoppers (hopper_id, bean_id, assigned_at) VALUES (2, NULL, ?)",
+                (now,),
+            )
+        except Exception:
+            pass
         await self._db.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),),
@@ -673,6 +699,38 @@ class SommelierDB:
             (key, value),
         )
         await self.db.commit()
+
+    # ── Machine Capabilities ──────────────────────────────────────────
+
+    async def async_get_capabilities(self, entry_id: str) -> dict[str, Any] | None:
+        """Return the cached capabilities row for a config entry, or None."""
+        async with self._lock:
+            cur = await self._db.execute(
+                "SELECT entry_id, json_payload, probed_at, schema_version "
+                "FROM machine_capabilities WHERE entry_id = ?",
+                (entry_id,),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "entry_id": row[0],
+            "json_payload": row[1],
+            "probed_at": row[2],
+            "schema_version": row[3],
+        }
+
+    async def async_save_capabilities(self, entry_id: str, json_payload: str) -> None:
+        """Insert-or-replace the capabilities cache row for a config entry."""
+        probed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        async with self._lock:
+            await self._db.execute(
+                "INSERT OR REPLACE INTO machine_capabilities "
+                "(entry_id, json_payload, probed_at, schema_version) "
+                "VALUES (?, ?, ?, ?)",
+                (entry_id, json_payload, probed_at, 1),
+            )
+            await self._db.commit()
 
     # ── User Extras (syrups, toppings, liqueurs, ice) ─────────────────
 
