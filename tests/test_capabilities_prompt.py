@@ -149,7 +149,7 @@ async def test_ws_generate_passes_caps_from_db_cache_to_build_prompt():
     # (not None) are required for the .get chain to short-circuit cleanly.
     db.async_get_hoppers = AsyncMock(return_value={"hopper1": {}, "hopper2": {}})
     db.async_get_milk = AsyncMock(return_value=[])
-    db.async_get_extras = AsyncMock(return_value={"syrups": [], "toppings": [], "liqueurs": [], "misc": []})
+    db.async_get_pantry_extras = AsyncMock(return_value={"syrups": [], "toppings": [], "liqueurs": [], "misc": []})
     db.async_get_active_profile = AsyncMock(return_value=None)
     db.async_get_settings = AsyncMock(return_value={"llm_agent_id": None})
     db.async_get_preferences = AsyncMock(return_value={})

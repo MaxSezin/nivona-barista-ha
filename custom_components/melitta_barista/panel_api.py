@@ -815,10 +815,9 @@ _TOPPINGS_UPDATE = _make_additive_update_handler("toppings")
 def _make_additive_set_available_handler(table: str):
     """Generate the set_available convenience handler for an additive table.
 
-    Updates the catalogue row's `available` flag and mirrors the value into
-    the legacy `user_extras` table so the Sommelier prompt (which still reads
-    `user_extras` in P4a) reflects pantry state without UI re-entry. The
-    mirror is one-way (catalogue → user_extras); reverse sync is out of scope.
+    Toggles the catalogue row's `available` flag. As of P4b the Sommelier
+    prompt reads the catalogue directly via `async_get_pantry_extras`, so
+    this handler no longer mirrors into `user_extras`.
     """
 
     @websocket_api.websocket_command({
@@ -830,29 +829,22 @@ def _make_additive_set_available_handler(table: str):
     @websocket_api.require_admin
     @websocket_api.async_response
     async def _ws_set_available(hass, connection, msg):
-        """Toggle the catalogue row's `available` and mirror to user_extras."""
+        """Toggle the catalogue row's `available` flag."""
         db = await _async_get_db(hass)
-        # Resolve the additive's name first so we can mirror to user_extras
-        # using a stable key, and so we can return not_found cleanly.
+        # `table` is a closure-captured literal ("syrups" / "toppings").
         cursor = await db._db.execute(
-            f"SELECT name FROM {table} WHERE id = ?",  # nosec B608
+            f"SELECT id FROM {table} WHERE id = ?",  # nosec B608
             (msg["additive_id"],),
         )
-        row = await cursor.fetchone()
-        if row is None:
+        if await cursor.fetchone() is None:
             connection.send_error(msg["id"], "not_found", "Additive not found")
             return
-        name = row[0]
         flag = 1 if msg["available"] else 0
-        # `table` is a closure-captured literal ("syrups" / "toppings").
         await db._db.execute(
             f"UPDATE {table} SET available = ? WHERE id = ?",  # nosec B608
             (flag, msg["additive_id"]),
         )
         await db._db.commit()
-        # Mirror to user_extras (category == table name) so the existing
-        # Sommelier prompt path (P4a) keeps working without changes.
-        await db.async_set_extra_available(table, name, bool(msg["available"]))
         connection.send_result(msg["id"], {"updated": True})
 
     return _ws_set_available
@@ -1272,7 +1264,7 @@ async def _ws_prompts_preview(hass, connection, msg):
             db = await _async_get_db(hass)
             hoppers = await db.async_get_hoppers()
             milk_types = await db.async_get_milk()
-            extras = await db.async_get_extras()
+            extras = await db.async_get_pantry_extras()
         except Exception:  # noqa: BLE001
             hoppers = {"hopper1": None, "hopper2": None}
             milk_types = []

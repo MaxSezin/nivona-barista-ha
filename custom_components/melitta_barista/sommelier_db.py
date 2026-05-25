@@ -1019,6 +1019,38 @@ class SommelierDB:
             result.setdefault(row["category"], []).append(row["item"])
         return result
 
+    async def async_get_pantry_extras(self) -> dict[str, list[str]]:
+        """Catalogue-first pantry reader: syrups/toppings from panel tables, liqueurs/misc from user_extras."""
+        result: dict[str, list[str]] = {
+            "syrups": [],
+            "toppings": [],
+            "liqueurs": [],
+            "misc": [],
+        }
+        # Syrups/toppings come from the panel-side catalogue (P4a). If the
+        # tables don't exist yet (panel schema not bootstrapped), treat the
+        # category as empty rather than blowing up.
+        for table in ("syrups", "toppings"):
+            try:
+                cursor = await self.db.execute(
+                    f"SELECT name FROM {table} WHERE available = 1 ORDER BY name"  # nosec B608
+                )
+                result[table] = [row["name"] for row in await cursor.fetchall()]
+            except aiosqlite.OperationalError:
+                result[table] = []
+        # Liqueurs/misc still live in user_extras.
+        cursor = await self.db.execute(
+            "SELECT item FROM user_extras "
+            "WHERE category = 'liqueurs' AND available = 1 ORDER BY item"
+        )
+        result["liqueurs"] = [row["item"] for row in await cursor.fetchall()]
+        cursor = await self.db.execute(
+            "SELECT item FROM user_extras "
+            "WHERE category = 'misc' AND available = 1 ORDER BY item"
+        )
+        result["misc"] = [row["item"] for row in await cursor.fetchall()]
+        return result
+
     async def async_set_extras(self, category: str, items: list[str]) -> None:
         """Set available extras for a category (replaces existing)."""
         await self.db.execute(

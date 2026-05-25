@@ -525,7 +525,7 @@ async def ws_generate(
     # Empty filter list (= user explicitly cleared the multiselect)
     # means "none of this category"; absent filter means "use DB
     # default = everything available".
-    extras_db = await db.async_get_extras() or {}
+    extras_db = await db.async_get_pantry_extras() or {}
     if "allow_syrups" in msg:
         extras_db["syrups"] = list(msg["allow_syrups"])
     if "allow_toppings" in msg:
@@ -1067,7 +1067,7 @@ async def ws_extras_get(
 ) -> None:
     """Get available extras (syrups, toppings, etc.)."""
     db = await _async_get_db(hass)
-    extras = await db.async_get_extras()
+    extras = await db.async_get_pantry_extras()
     connection.send_result(msg["id"], {"extras": extras})
 
 
