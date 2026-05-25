@@ -2,6 +2,16 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.63.0] — 2026-05-26
+
+### Changed (P4b — Pantry, R6 closing slice)
+- **The Sommelier AI now reads its pantry directly from the syrups / toppings catalogue** (`available=1`), not from `user_extras`. `ws_generate`, `melitta_barista/sommelier/extras/get`, and the `sommelier_intro` prompt-preview path are all backed by the new `async_get_pantry_extras` helper. Liqueurs and misc/ice still live in `user_extras` and are unaffected.
+- **Sommelier UI chip list hides out-of-stock items.** `_loadAvailable` filters by the catalogue's `available` flag, so toggling a syrup off in the Additives panel removes it from the chip picker on the next Sommelier visit. The backend enforces the same filter.
+- **`set_available` no longer mirrors into `user_extras`.** The mirror was a P4a bridge so the AI (which read `user_extras` then) would see catalogue toggles. With the AI reading the catalogue directly, the mirror is dead weight and is dropped.
+
+### Migration note
+- If your Sommelier suggestions used to draw on syrups/toppings that were stored only in `user_extras` (never added via the Additives panel), re-add them via the Additives panel. They will land in the catalogue with `available=1` and become visible to the AI again.
+
 ## [0.62.0] — 2026-05-26
 
 ### Added (P4a — Pantry, R6 slice 1)
