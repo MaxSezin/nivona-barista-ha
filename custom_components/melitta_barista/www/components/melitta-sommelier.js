@@ -143,8 +143,15 @@ class MelittaSommelier extends LitElement {
         this.hass.callWS({ type: "melitta_barista/toppings/list" }),
         this.hass.callWS({ type: "melitta_barista/sommelier/milk/get" }),
       ]);
-      this._availableSyrups = (syrups.syrups || []).map((s) => s.name);
-      this._availableToppings = (toppings.toppings || []).map((t) => t.name);
+      // Out-of-stock items are hidden from the chip picker. The
+      // catalogue `available` flag is patched via melitta-additives.js;
+      // ws_generate enforces the same filter on the backend.
+      this._availableSyrups = (syrups.syrups || [])
+        .filter((s) => (s.available ?? 1) !== 0)
+        .map((s) => s.name);
+      this._availableToppings = (toppings.toppings || [])
+        .filter((t) => (t.available ?? 1) !== 0)
+        .map((t) => t.name);
       this._availableMilk = milk.milk_types || [];
       // Default: select everything available so the user has to opt OUT
       // of an ingredient they don't want, not opt IN to each one.
