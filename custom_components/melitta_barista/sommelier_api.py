@@ -1087,6 +1087,8 @@ async def ws_extras_set(
 ) -> None:
     """Set extras for a category."""
     db = await _async_get_db(hass)
+    await db.async_set_extras(msg["category"], msg["items"])
+    connection.send_result(msg["id"])
 
 
 # ── Recipe Ratings ────────────────────────────────────────────────────

@@ -2,6 +2,19 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.59.0] — 2026-05-25
+
+### Added (backend, foundation for History/Favorites/Ratings UI in P3b)
+- **`recipe_ratings` table (DB v5 → v6).** Stores 1..5 star ratings + optional tasting notes, keyed by `(target_id, target_type)` where `target_type ∈ {"generated", "favorite"}`. Lets the same recipe carry a separate "first impression" (on the generated row) and an "after saving" rating (on the favorite copy). Validation: range check via CHECK constraint + Python `ValueError` for defensive depth.
+- **`melitta_barista/sommelier/recipe/rate`** and **`recipe/unrate`** WS endpoints. Upsert / delete a rating for any recipe. Voluptuous validation: rating in 1..5; target_type in the two enum values. `require_admin`.
+- **`melitta_barista/sommelier/favorites/update`** WS endpoint. Patch a favorite's name, description, or note. Notes route through the unified `recipe_ratings` table (a rating must exist first; the UI is expected to combine the two operations in P3b).
+- **`melitta_barista/sommelier/history/clear`** WS endpoint with `keep_favorited` (default `true`) — protects sessions whose recipes are referenced by `favorites.source_recipe_id`. Relies on the existing `ON DELETE CASCADE` between `generation_sessions` and `generated_recipes` (`PRAGMA foreign_keys=ON` already set in `async_setup`). Returns `{cleared: <count>}`.
+- **`async_list_favorites`, `async_get_favorite`, `async_list_history`, and `async_get_recipe` now expose `rating` + `note`** via a `LEFT JOIN recipe_ratings`. Both `target_type='favorite'` and `target_type='generated'` JOINs supported. Recipes without ratings return `null` for both fields.
+
+### Notes
+- Frontend components (favorites view, history view, `<melitta-star-rating>`) are out of scope here — P3b will consume these endpoints.
+- The `brew_count` regression (wizard path calls `/sommelier/brew` instead of `/favorites/brew`, so the favorite's `brew_count` never increments after the initial add) is also deferred to P3b — it requires wizard-level wiring that depends on the favorites view UX.
+
 ## [0.58.0] — 2026-05-25
 
 ### Added
