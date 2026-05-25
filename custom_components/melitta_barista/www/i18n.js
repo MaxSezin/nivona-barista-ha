@@ -142,6 +142,7 @@ const STRINGS = {
     "sommelier.brewing": "Sending brew command…",
     "sommelier.brew_ok": "Brew started.",
     "sommelier.brew_failed": "Brew failed.",
+    "sommelier.recipe_not_found": "Recipe not found",
 
     "wizard.title": "Brew wizard",
     "wizard.pre.title": "Before you start",
@@ -395,6 +396,7 @@ const STRINGS = {
     "sommelier.brewing": "Отправляю команду варки…",
     "sommelier.brew_ok": "Варка началась.",
     "sommelier.brew_failed": "Варка не выполнена.",
+    "sommelier.recipe_not_found": "Рецепт не найден",
 
     "wizard.title": "Мастер варки",
     "wizard.pre.title": "Подготовка",
