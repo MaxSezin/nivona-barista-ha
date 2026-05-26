@@ -14,7 +14,7 @@ import aiosqlite
 
 _LOGGER = logging.getLogger("melitta_barista")
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _VALID_RATING_TARGET_TYPES = frozenset({"generated", "favorite"})
 
@@ -149,12 +149,14 @@ CREATE TABLE IF NOT EXISTS recipe_ratings (
 );
 
 CREATE TABLE IF NOT EXISTS sommelier_presets (
-  id           TEXT PRIMARY KEY,
-  name         TEXT NOT NULL,
-  description  TEXT,
-  payload      TEXT NOT NULL,
-  created_at   TEXT NOT NULL,
-  updated_at   TEXT
+  id               TEXT PRIMARY KEY,
+  name             TEXT NOT NULL,
+  description      TEXT,
+  payload          TEXT NOT NULL,
+  is_system        INTEGER NOT NULL DEFAULT 0,
+  dynamic_occasion INTEGER NOT NULL DEFAULT 0,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT
 );
 """
 
@@ -266,6 +268,91 @@ CREATE TABLE IF NOT EXISTS sommelier_presets (
 );
 """
 
+# v7 → v8: extend `sommelier_presets` with `is_system` (write-protected
+# built-in flag) and `dynamic_occasion` (re-resolve occasion at brew time
+# from local time of day). Companion seeder `async_seed_system_presets`
+# populates four built-in presets (Morning / After lunch / Work / Guests).
+MIGRATE_V7_TO_V8 = """
+ALTER TABLE sommelier_presets ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sommelier_presets ADD COLUMN dynamic_occasion INTEGER NOT NULL DEFAULT 0;
+"""
+
+# Four built-in system presets seeded by `async_seed_system_presets` on
+# first setup. Deterministic ids (`sys_*`) keep INSERT OR IGNORE re-runs
+# stable. Each `payload` is a Sommelier "generate" form template; the
+# `name_key` lets the panel resolve a translated label, with the row's
+# `name` column acting as the English fallback.
+SYSTEM_PRESETS = [
+    {
+        "id": "sys_morning",
+        "name": "Morning",
+        "description": "Energizing brew for the start of the day.",
+        "dynamic_occasion": True,
+        "payload": {
+            "name_key": "presets.system.morning",
+            "mode": "surprise_me",
+            "occasion": "morning",
+            "temperature": "hot",
+            "moods": ["energizing"],
+            "caffeine_pref": "regular",
+            "cup_size": "mug",
+            "dietary": [],
+            "dynamic_occasion": True,
+        },
+    },
+    {
+        "id": "sys_after_lunch",
+        "name": "After lunch",
+        "description": "Balanced cup for the afternoon.",
+        "dynamic_occasion": True,
+        "payload": {
+            "name_key": "presets.system.after_lunch",
+            "mode": "surprise_me",
+            "occasion": "after_lunch",
+            "temperature": "auto",
+            "moods": ["balanced"],
+            "caffeine_pref": "regular",
+            "cup_size": "cup",
+            "dietary": [],
+            "dynamic_occasion": True,
+        },
+    },
+    {
+        "id": "sys_work",
+        "name": "Work",
+        "description": "Focused, head-down brew.",
+        "dynamic_occasion": True,
+        "payload": {
+            "name_key": "presets.system.work",
+            "mode": "surprise_me",
+            "occasion": "work",
+            "temperature": "hot",
+            "moods": ["focused"],
+            "caffeine_pref": "regular",
+            "cup_size": "cup",
+            "dietary": [],
+            "dynamic_occasion": True,
+        },
+    },
+    {
+        "id": "sys_guests",
+        "name": "Guests",
+        "description": "Something special for visitors.",
+        "dynamic_occasion": True,
+        "payload": {
+            "name_key": "presets.system.guests",
+            "mode": "surprise_me",
+            "occasion": "guests",
+            "temperature": "auto",
+            "moods": ["indulgent"],
+            "caffeine_pref": "regular",
+            "cup_size": "mug",
+            "dietary": [],
+            "dynamic_occasion": True,
+        },
+    },
+]
+
 INIT_HOPPERS_SQL = """
 INSERT OR IGNORE INTO hoppers (hopper_id, bean_id, assigned_at) VALUES (1, NULL, ?);
 INSERT OR IGNORE INTO hoppers (hopper_id, bean_id, assigned_at) VALUES (2, NULL, ?);
@@ -354,6 +441,8 @@ class SommelierDB:
                 migrations.append((6, MIGRATE_V5_TO_V6))
             if current_version < 7:
                 migrations.append((7, MIGRATE_V6_TO_V7))
+            if current_version < 8:
+                migrations.append((8, MIGRATE_V7_TO_V8))
             for target_version, sql in migrations:
                 for stmt in sql.strip().split(";"):
                     stmt = stmt.strip()
@@ -389,6 +478,13 @@ class SommelierDB:
         )
         await self._db.commit()
         _LOGGER.info("Sommelier DB initialized (v%d) at %s", SCHEMA_VERSION, self._db_path)
+
+        # Seed the four built-in system presets if they're not present yet.
+        # Idempotent — re-running after a partial damage repairs gaps but
+        # logs nothing when no rows were inserted.
+        seeded = await self.async_seed_system_presets()
+        if seeded > 0:
+            _LOGGER.info("Seeded %d system presets", seeded)
 
     async def async_close(self) -> None:
         """Close the database connection."""
@@ -924,20 +1020,60 @@ class SommelierDB:
     async def async_list_presets(self) -> list[dict[str, Any]]:
         """List all sommelier presets, ordered case-insensitively by name.
 
-        Each row dict is `{id, name, description, payload, created_at,
-        updated_at}` with ``payload`` parsed back from JSON to a dict.
+        Each row dict is `{id, name, description, payload, is_system,
+        dynamic_occasion, created_at, updated_at}` with ``payload`` parsed
+        back from JSON to a dict, and the two int flags coerced to ``bool``.
         ``description`` and ``updated_at`` may be ``None``.
         """
         cursor = await self.db.execute(
-            "SELECT id, name, description, payload, created_at, updated_at "
+            "SELECT id, name, description, payload, is_system, "
+            "dynamic_occasion, created_at, updated_at "
             "FROM sommelier_presets ORDER BY LOWER(name)"
         )
         result: list[dict[str, Any]] = []
         for row in await cursor.fetchall():
             d = _row_to_dict(row)
             d["payload"] = json.loads(d["payload"])
+            d["is_system"] = bool(d["is_system"])
+            d["dynamic_occasion"] = bool(d["dynamic_occasion"])
             result.append(d)
         return result
+
+    async def async_seed_system_presets(self) -> int:
+        """Insert the four built-in system presets if none exist yet.
+
+        Returns the number of rows actually inserted — 0 when at least one
+        ``is_system = 1`` row already exists (idempotent gate), or 4 on the
+        first call against a clean DB. ``INSERT OR IGNORE`` keyed on the
+        deterministic ``sys_*`` ids keeps a partial-damage rerun safe.
+        """
+        cursor = await self.db.execute(
+            "SELECT COUNT(*) FROM sommelier_presets WHERE is_system = 1"
+        )
+        row = await cursor.fetchone()
+        if row and int(row[0]) > 0:
+            return 0
+
+        inserted = 0
+        now = _now()
+        for preset in SYSTEM_PRESETS:
+            cur = await self.db.execute(
+                "INSERT OR IGNORE INTO sommelier_presets "
+                "(id, name, description, payload, is_system, "
+                "dynamic_occasion, created_at) "
+                "VALUES (?, ?, ?, ?, 1, 1, ?)",
+                (
+                    preset["id"],
+                    preset["name"],
+                    preset["description"],
+                    json.dumps(preset["payload"]),
+                    now,
+                ),
+            )
+            if cur.rowcount > 0:
+                inserted += 1
+        await self.db.commit()
+        return inserted
 
     async def async_add_preset(
         self, name: str, description: str | None, payload: dict
@@ -958,10 +1094,21 @@ class SommelierDB:
         """Patch ``name``, ``description``, and/or ``payload`` on a preset.
 
         At least one of the three fields must be supplied — an empty patch
-        raises ``ValueError("no_fields")``. ``payload`` is JSON-encoded when
-        present. ``updated_at`` is bumped on every successful update.
+        raises ``ValueError("no_fields")``. System (built-in) rows refuse
+        any update with ``ValueError("system_preset_readonly")``; that check
+        fires before the empty-patch check so the readonly contract is
+        unambiguous regardless of payload shape. ``payload`` is JSON-encoded
+        when present. ``updated_at`` is bumped on every successful update.
         Returns True iff a row matched ``preset_id``.
         """
+        cursor = await self.db.execute(
+            "SELECT is_system FROM sommelier_presets WHERE id = ?",
+            (preset_id,),
+        )
+        existing = await cursor.fetchone()
+        if existing is not None and int(existing["is_system"]) == 1:
+            raise ValueError("system_preset_readonly")
+
         name = fields.get("name")
         description = fields.get("description")
         payload = fields.get("payload")
@@ -991,7 +1138,20 @@ class SommelierDB:
         return cursor.rowcount > 0
 
     async def async_delete_preset(self, preset_id: str) -> bool:
-        """Delete a sommelier preset. Returns True iff a row was removed."""
+        """Delete a sommelier preset. Returns True iff a row was removed.
+
+        System (built-in) rows refuse deletion with
+        ``ValueError("system_preset_readonly")``; the readonly check fires
+        before the DELETE so the row is never even attempted to be removed.
+        """
+        cursor = await self.db.execute(
+            "SELECT is_system FROM sommelier_presets WHERE id = ?",
+            (preset_id,),
+        )
+        existing = await cursor.fetchone()
+        if existing is not None and int(existing["is_system"]) == 1:
+            raise ValueError("system_preset_readonly")
+
         cursor = await self.db.execute(
             "DELETE FROM sommelier_presets WHERE id = ?", (preset_id,)
         )
