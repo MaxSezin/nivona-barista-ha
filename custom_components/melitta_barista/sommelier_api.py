@@ -27,6 +27,21 @@ def _find_client(hass: HomeAssistant):
     return None
 
 
+class RecipeWritesUnsupportedError(RuntimeError):
+    """Raised when the active machine cannot accept custom freestyle recipes.
+
+    Nivona families set MachineCapabilities.supports_recipe_writes=False
+    because their recipe protocol differs from Melitta's freestyle slot.
+    The Sommelier UI shows the recipe as print-only for those machines.
+    """
+
+    def __init__(self, family_key: str) -> None:
+        super().__init__(
+            f"machine family {family_key!r} does not support custom recipe writes",
+        )
+        self.family_key = family_key
+
+
 async def _brew_recipe_components(
     client, name: str, blend: int, phases: list[dict]
 ) -> None:
@@ -73,6 +88,17 @@ async def _brew_recipe_components(
             temperature=TEMPERATURE_MAP.get("normal", 1),
             portion=0,
         )
+
+    # P10 brand-honest gate: Nivona families set
+    # MachineCapabilities.supports_recipe_writes=False because their recipe
+    # protocol differs from Melitta's freestyle slot. Refusing here keeps
+    # the failure mode explicit instead of failing silently inside the BLE
+    # layer. WS handlers translate this into a "recipe_writes_unsupported"
+    # send_error so the panel can show a clear print-only state.
+    caps = getattr(client, "_capabilities", None)
+    if caps is not None and not caps.supports_recipe_writes:
+        family_key = getattr(caps, "family_key", "unknown")
+        raise RecipeWritesUnsupportedError(family_key)
 
     await client.brew_freestyle(
         name=name,
@@ -794,6 +820,14 @@ async def ws_brew(
             blend=recipe.get("blend", 1),
             phases=recipe.get("machine_phases") or [],
         )
+    except RecipeWritesUnsupportedError as exc:
+        connection.send_error(
+            msg["id"],
+            "recipe_writes_unsupported",
+            f"This machine ({exc.family_key}) does not support custom "
+            "recipe writes. The recipe is print-only here.",
+        )
+        return
     except Exception:
         _LOGGER.exception("Failed to brew recipe")
         connection.send_error(
@@ -954,6 +988,14 @@ async def ws_favorites_brew(
             blend=fav.get("blend", 1),
             phases=fav.get("machine_phases") or [],
         )
+    except RecipeWritesUnsupportedError as exc:
+        connection.send_error(
+            msg["id"],
+            "recipe_writes_unsupported",
+            f"This machine ({exc.family_key}) does not support custom "
+            "recipe writes. The recipe is print-only here.",
+        )
+        return
     except Exception:
         _LOGGER.exception("Failed to brew favorite")
         connection.send_error(

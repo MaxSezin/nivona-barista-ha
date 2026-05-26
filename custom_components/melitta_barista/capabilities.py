@@ -25,7 +25,7 @@ from .const import (
     TEMPERATURE_MAP,
 )
 
-_SUPPORTED_SCHEMA_VERSIONS = {1}
+_SUPPORTED_SCHEMA_VERSIONS = {1, 2}
 
 # Global portion default for P1a — protocol-wide range from service schema.
 # In future plans, per-process / per-family overrides will land here.
@@ -46,6 +46,12 @@ class LiveCapabilities:
     supported_shots: tuple[str, ...]
     portion_limits: dict[str, dict[str, int]] = field(default_factory=dict)
     forbidden_combinations: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    # schema v2 — brand-honest gate for Sommelier custom-recipe writes.
+    # Melitta families use the freestyle slot via the HJ protocol; Nivona
+    # families declare supports_recipe_writes=False because their recipe
+    # protocol differs. v1 cached blobs default this to True so existing
+    # Melitta installs see no change.
+    supports_recipe_writes: bool = True
 
     def to_json(self) -> str:
         """Serialize to a JSON string suitable for the DB blob column."""
@@ -62,6 +68,9 @@ class LiveCapabilities:
                 f"expected one of {sorted(_SUPPORTED_SCHEMA_VERSIONS)}"
             )
         # Tuples come back as lists from JSON — coerce.
+        # `supports_recipe_writes` was added in schema v2; v1 blobs predate
+        # the Nivona-safe gate and were all Melitta installs, so the default
+        # True keeps existing caches behaving exactly as before.
         return cls(
             schema_version=sv,
             family_key=data["family_key"],
@@ -73,6 +82,7 @@ class LiveCapabilities:
             supported_shots=tuple(data["supported_shots"]),
             portion_limits=dict(data.get("portion_limits", {})),
             forbidden_combinations=tuple(data.get("forbidden_combinations", ())),
+            supports_recipe_writes=bool(data.get("supports_recipe_writes", True)),
         )
 
 
@@ -116,7 +126,7 @@ def derive_capabilities(client: Any) -> LiveCapabilities:
     portion_limits = {p: dict(_DEFAULT_PORTION_LIMITS) for p in processes if p != "none"}
 
     return LiveCapabilities(
-        schema_version=1,
+        schema_version=2,
         family_key=caps.family_key,
         model_name=caps.model_name,
         supported_processes=processes,
@@ -126,4 +136,5 @@ def derive_capabilities(client: Any) -> LiveCapabilities:
         supported_shots=shots,
         portion_limits=portion_limits,
         forbidden_combinations=(),
+        supports_recipe_writes=bool(caps.supports_recipe_writes),
     )

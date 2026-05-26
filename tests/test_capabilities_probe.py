@@ -40,7 +40,7 @@ async def test_probe_callback_derives_and_saves_on_connect():
     assert saved_entry_id == "entry_42"
     parsed = json.loads(saved_json)
     assert parsed["family_key"] == "barista_ts"
-    assert parsed["schema_version"] == 1
+    assert parsed["schema_version"] == 2
     assert "coffee" in parsed["supported_processes"]
 
 

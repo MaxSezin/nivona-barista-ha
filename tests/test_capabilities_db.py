@@ -115,3 +115,90 @@ async def test_migration_from_v3_preserves_data():
         assert row[0] == str(SCHEMA_VERSION)
 
         await db.async_close()
+
+
+# ── P10: LiveCapabilities schema v1 -> v2 (supports_recipe_writes) ──────
+
+
+def test_v1_blob_parses_and_defaults_recipe_writes_to_true():
+    """Reading a v1 cached blob defaults supports_recipe_writes=True.
+
+    The field was added in P10 (schema v2); existing Melitta installs that
+    were cached under v1 must keep behaving exactly as before — i.e. the
+    Sommelier brew path stays open. The Nivona-only refusal only takes
+    effect when the field is explicitly False (v2 blob from a Nivona
+    family).
+    """
+    from custom_components.melitta_barista.capabilities import LiveCapabilities
+
+    blob = json.dumps({
+        "schema_version": 1,
+        "family_key": "barista_ts",
+        "model_name": "Melitta Barista TS Smart",
+        "supported_processes": ["coffee", "milk"],
+        "supported_intensities": ["mild", "medium", "strong"],
+        "supported_aromas": ["standard", "intense"],
+        "supported_temperatures": ["normal"],
+        "supported_shots": ["one", "two"],
+        "portion_limits": {"coffee": {"min": 0, "max": 250, "step": 5}},
+        "forbidden_combinations": [],
+    })
+    caps = LiveCapabilities.from_json(blob)
+    assert caps.schema_version == 1
+    assert caps.supports_recipe_writes is True
+
+
+def test_v2_blob_round_trips_supports_recipe_writes_false():
+    """v2 dataclass with supports_recipe_writes=False survives serialization."""
+    from custom_components.melitta_barista.capabilities import LiveCapabilities
+
+    original = LiveCapabilities(
+        schema_version=2,
+        family_key="900",
+        model_name="Nivona 9xx",
+        supported_processes=("coffee", "milk"),
+        supported_intensities=("mild", "medium", "strong"),
+        supported_aromas=("standard",),
+        supported_temperatures=("normal",),
+        supported_shots=("one", "two"),
+        portion_limits={"coffee": {"min": 10, "max": 200, "step": 10}},
+        forbidden_combinations=(),
+        supports_recipe_writes=False,
+    )
+    restored = LiveCapabilities.from_json(original.to_json())
+    assert restored == original
+    assert restored.supports_recipe_writes is False
+    assert restored.schema_version == 2
+
+
+def test_derive_capabilities_sources_recipe_writes_from_machine_caps():
+    """derive_capabilities reads MachineCapabilities.supports_recipe_writes
+    verbatim and stamps schema_version=2 on the result."""
+    from unittest.mock import MagicMock
+
+    from custom_components.melitta_barista.brands.base import MachineCapabilities
+    from custom_components.melitta_barista.capabilities import derive_capabilities
+
+    caps = MachineCapabilities(
+        family_key="900",
+        model_name="Nivona 9xx",
+        supports_recipe_writes=False,
+        supports_stats=False,
+        my_coffee_slots=8,
+        strength_levels=3,
+        has_aroma_balance=False,
+        image_transfer=None,
+        fluid_scale_factor=1,
+        brew_command_mode=0x0B,
+        recipe_text_encoding="utf16_le",
+        tolerated_brew_manipulations=(),
+        recipes=(),
+        settings=(),
+        stats=(),
+    )
+    client = MagicMock()
+    client._capabilities = caps
+
+    live = derive_capabilities(client)
+    assert live.supports_recipe_writes is False
+    assert live.schema_version == 2
