@@ -1,4 +1,4 @@
-# Hardware Compatibility List
+надо доб# Hardware Compatibility List
 
 > Living document. Confirmed by the maintainer (✅), the community (👥), or
 > known-broken (❌). If you have a working — or broken — combo not listed
@@ -40,6 +40,34 @@ topology day-to-day.
   through fighting D-Bus.
 - Repeatable across operating systems — HA OS, Container, Supervised, Core,
   bare metal — because the BLE stack runs on the ESP, not the host.
+
+#### Required / used by this integration
+
+Stock `bluetooth_proxy` covers the happy path, but
+[`esphome/ble-proxy-xiao-c6.yaml`](esphome/ble-proxy-xiao-c6.yaml) ships
+**four integration-specific extras** that the `melitta_barista` code path
+explicitly calls. Bring-your-own YAML works only if you mirror them — the
+template is the source of truth:
+
+| Knob | Required by | Why |
+|---|---|---|
+| `bluetooth_proxy: { active: true }` | every brew + handshake | Stock ESPHome defaults to passive ad relay only. We need GATT writes (recipe HJ frames, freestyle brew, settings) — these flow through `active: true`. Without it the handshake never even starts. |
+| `esp32_ble: { max_connections: 4 }` + `bluetooth_proxy: { connection_slots: 3 }` | every connection | The default 3-slot pool is too tight once `esp32_ble_tracker` + `bluetooth_proxy` register their components — the compiler warns explicitly. One slot per machine you want to drive concurrently, plus headroom for the scanner. |
+| Custom `api.actions: clear_ble_bonds` | "Hard Repair" / `force_pair_full` repair flow (`__init__.py:_handle_force_repair`) | When the ESP keeps a stale LTK and rejects fresh SMP with `auth fail reason=82`, the integration calls `esphome.<proxy>_clear_ble_bonds` to wipe `esp_ble_get_bond_device_list` from NVS. The action body runs four lines of `esp_ble_remove_bond_device(...)` — there is no stock equivalent. Without this action the Hard Repair path degrades to a clearly-worded error ("Add the `clear_ble_bonds` action to your ESPHome YAML…") and the user must reflash the proxy manually. |
+| Custom `api.actions: disconnect_ble_peer` | same repair flow, when a slot is stuck `ESTABLISHED` | After certain `auth fail reason=82` paths the connection slot holds a half-closed link and the GAP layer ignores fresh connect requests. The integration calls `esphome.<proxy>_disconnect_ble_peer { peer_mac: ... }` to force `esp_ble_gap_disconnect` so the next pair attempt opens a fresh SMP exchange. Without it the slot stays wedged until proxy reboot. |
+| `esphome: { min_version: 2025.8.0 }` | the two `api.actions:` blocks above | The top-level `api.actions:` schema is 2025.8+. Older ESPHome ignores the block silently — pinning the minimum fails the compile early instead. |
+
+The integration falls back gracefully when an action is missing
+(`hass.services.has_service` check + an explicit error message naming the
+exact YAML snippet to add — see `__init__.py:_handle_force_repair`), so a
+stock-config `bluetooth_proxy` still **works for daily use**. The lossy
+degradation is confined to the recovery flows: stuck-bond / stuck-slot
+incidents then need a manual proxy reboot instead of a service call from
+HA's Repairs dialog.
+
+The XIAO C6 yaml additionally toggles antenna-switch GPIOs (FM8625H IC on
+GPIO3 + GPIO14) and a status LED on GPIO15. These are board-specific to the
+Seeed XIAO ESP32-C6 and harmless to omit on other boards.
 
 ### 1.2 Local Bluetooth adapter ⚠️ supported, less-tested
 
