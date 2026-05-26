@@ -132,14 +132,48 @@ Nivona machines ship with a **fixed** set of recipes per family (no recipe editi
 
 Source: per-family recipe tables in [`brands/nivona.py`](custom_components/melitta_barista/brands/nivona.py), ported from the upstream [mpapierski/esp-coffee-bridge](https://github.com/mpapierski/esp-coffee-bridge/blob/main/src/nivona.cpp) RE effort.
 
+## BLE topology — strongly prefer an ESPHome proxy
+
+> 🟢 **The recommended and primary-tested BLE transport for this integration is
+> an [ESPHome `bluetooth_proxy`](https://esphome.io/projects/?type=bluetooth)
+> on a $10 ESP32 board placed near the machine.** That's the path the
+> maintainer develops and tests on; pair / reconnect / handshake / brew
+> protocol logic accumulate test-hours against it day-to-day. The ESP's BLE
+> stack handles `pair=True` natively, sidestepping every BlueZ quirk
+> (D-Bus `Agent1`, `No agent available`, `Authentication failed`,
+> headless-Linux `bluetoothd` crashes) that a host-side BLE adapter can run
+> into.
+
+A bare local Bluetooth adapter (Pi onboard BLE, USB dongle, host chipset)
+**also works** and is fully supported — but the local-adapter / BlueZ path
+has fewer accumulated test-hours, so quirks land there first. If you're
+starting from scratch, the proxy route trades ~$10 of hardware for
+noticeably more predictable behaviour. See [`HCL.md`](HCL.md) for confirmed
+adapter / board combinations and known quirks.
+
+The repo ships a ready-to-flash ESPHome config at
+[`esphome/ble-proxy-xiao-c6.yaml`](esphome/ble-proxy-xiao-c6.yaml) for the
+**Seeed XIAO ESP32-C6** (the maintainer's reference board). Any ESP32 / S3 /
+C3 / C6 with stock `bluetooth_proxy` works the same way.
+
+---
+
 ## Requirements
 
 - **Home Assistant** 2024.1 or newer
-- **Bluetooth adapter** -- a BLE-capable adapter accessible to your Home Assistant host (built-in or USB dongle)
+- **BLE transport** — one of:
+  - **ESPHome BLE proxy on an ESP32** *(recommended; primary tested path —
+    see above)*. The proxy sits in the machine's RF neighbourhood and
+    bridges BLE traffic over Wi-Fi into HA's `bluetooth` integration.
+  - **Local Bluetooth adapter** — Pi onboard BLE / USB dongle / host
+    chipset. Supported but less-tested. See [`HCL.md`](HCL.md) for
+    adapter-specific notes.
 - **Supported machine** — one of:
   - **Melitta Barista T Smart** or **Melitta Barista TS Smart** (stable)
   - **Nivona NICR 6xx / 7xx / 79x / 9xx / 1030 / 1040** or **NIVO 8xxx** (alpha)
-- **BLE range** -- the Home Assistant host must be within Bluetooth range of the machine (typically up to 10 meters)
+- **BLE range** — for ESPHome proxy: keep the proxy within ~5 m of the
+  machine; for a local adapter: keep the Home Assistant host within ~10 m
+  of the machine, line of sight where possible.
 
 ## Installation
 
