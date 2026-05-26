@@ -35,6 +35,7 @@ class MelittaSommelierHistory extends LitElement {
       entryId: { type: String },
       lang: { type: String },
       activeProfile: { type: Number },
+      canBrew: { type: Boolean },
       open: { type: Boolean, reflect: true },
       _sessions: { state: true },
       _loading: { state: true },
@@ -48,6 +49,8 @@ class MelittaSommelierHistory extends LitElement {
   constructor() {
     super();
     this.open = false;
+    // Optimistic default — parent overrides via .canBrew prop.
+    this.canBrew = true;
     this._sessions = [];
     this._loading = false;
     this._hasMore = false;
@@ -194,7 +197,10 @@ class MelittaSommelierHistory extends LitElement {
         ${recipe.note ? html`<p class="note">${this._t("history.note_label")}: <em>${recipe.note}</em></p>` : ""}
         <div class="actions">
           ${recipe.brewed ? html`<span class="badge muted">${this._t("history.brewed")}</span>` : ""}
-          <button class="primary" @click=${() => this._onBrew(recipe)}>${this._t("history.brew_again")}</button>
+          <button class="primary"
+                  ?disabled=${!this.canBrew}
+                  title=${!this.canBrew ? this._t("brewing.unsupported_tooltip") : ""}
+                  @click=${() => this._onBrew(recipe)}>${this._t("history.brew_again")}</button>
         </div>
       </div>
     `;

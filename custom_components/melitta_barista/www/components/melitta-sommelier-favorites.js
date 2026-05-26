@@ -31,6 +31,7 @@ class MelittaSommelierFavorites extends LitElement {
       entryId: { type: String },
       lang: { type: String },
       activeProfile: { type: Number },
+      canBrew: { type: Boolean },
       open: { type: Boolean, reflect: true },
       _favorites: { state: true },
       _loading: { state: true },
@@ -45,6 +46,8 @@ class MelittaSommelierFavorites extends LitElement {
   constructor() {
     super();
     this.open = false;
+    // Optimistic default — parent overrides via .canBrew prop.
+    this.canBrew = true;
     this._favorites = [];
     this._loading = false;
     this._editingId = null;
@@ -228,7 +231,10 @@ class MelittaSommelierFavorites extends LitElement {
         <div class="actions">
           <button class="ghost" @click=${() => this._onDelete(favorite)}>${this._t("common.delete")}</button>
           <button class="ghost" @click=${() => this._startEdit(favorite)}>${this._t("common.edit")}</button>
-          <button class="primary" @click=${() => this._onBrew(favorite)}>${this._t("favorites.brew")}</button>
+          <button class="primary"
+                  ?disabled=${!this.canBrew}
+                  title=${!this.canBrew ? this._t("brewing.unsupported_tooltip") : ""}
+                  @click=${() => this._onBrew(favorite)}>${this._t("favorites.brew")}</button>
         </div>
       </div>
     `;
