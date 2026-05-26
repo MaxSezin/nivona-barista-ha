@@ -2,6 +2,18 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.69.0] — 2026-05-26
+
+### Added (P7b — R8 slice 2: machine_profile UI)
+- **"Profile N" badge in the Sommelier panel header** when the machine reports an active hardware profile. Sourced from `melitta_barista/status`'s `active_profile` field; falls back silently if the integration cannot reach the machine.
+- **Preset / favorite / history lists auto-filter to the active profile** by passing `machine_profile_filter` on every list call. Shared entries (`machine_profile IS NULL`) always come through, so nothing disappears when a user switches profiles.
+- **"Save as preset" gains an optional "Bind to profile N" checkbox** — visible only when a profile is active, default OFF (shared). Checked → preset is bound to the current machine profile via the P7a `machine_profile` parameter.
+- **`sommelier/generate` is auto-tagged** with the active profile so the resulting `generation_sessions` row surfaces under the same filter in History.
+
+### Notes
+- R8 is now functionally closed: tagging + filtering work across presets, favorites, history, and new generate sessions. The favorites "Add" path inherits shared semantics (no per-machine binding UI yet — the Manage modal hides per-profile edit because R8 didn't request it for favorites).
+- Profile-aware filtering is implicit (no toggle). The TZ §R8 mention of a "Show shared toggle" is deferred — every profile-aware list already includes shared rows, which addresses the common case.
+
 ## [0.68.0] — 2026-05-26
 
 ### Added (P7a — R8 slice 1: machine_profile tagging, data layer)
