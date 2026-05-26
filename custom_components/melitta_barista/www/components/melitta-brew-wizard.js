@@ -47,6 +47,7 @@ class MelittaBrewWizard extends LitElement {
       open: { type: Boolean, reflect: true },
       source: { type: String },
       sourceId: { type: String },
+      canBrew: { type: Boolean },
       _phase: { state: true },
       _brewing: { state: true },
       _brewProgress: { state: true },
@@ -63,6 +64,9 @@ class MelittaBrewWizard extends LitElement {
     this.open = false;
     this.source = "generated";
     this.sourceId = null;
+    // Optimistic default — children stay brand-agnostic and rely on the
+    // parent to override when capabilities say otherwise.
+    this.canBrew = true;
     this._phase = "pre";
     this._brewing = false;
     this._brewProgress = 0;
@@ -108,9 +112,15 @@ class MelittaBrewWizard extends LitElement {
       ${cupType ? html`<p class="cup">${this._t("wizard.pre.cup")}: <strong>${cupType}</strong></p>` : ""}
       ${steps.length ? html`<ol>${steps.map((s) => this._renderStep(s))}</ol>` :
         html`<p class="muted">${this._t("wizard.pre.no_steps")}</p>`}
+      ${!this.canBrew ? html`
+        <div class="unsupported-note">${this._t("brewing.unsupported_note")}</div>
+      ` : ""}
       <div class="actions">
         <button class="ghost" @click=${() => this._close()}>${this._t("common.cancel")}</button>
-        <button class="primary" @click=${() => this._startBrew()}>${this._t("wizard.pre.start_brew")}</button>
+        <button class="primary"
+                ?disabled=${!this.canBrew}
+                title=${!this.canBrew ? this._t("brewing.unsupported_tooltip") : ""}
+                @click=${() => this._startBrew()}>${this._t("wizard.pre.start_brew")}</button>
       </div>
     `;
   }
@@ -168,6 +178,14 @@ class MelittaBrewWizard extends LitElement {
   }
 
   async _startBrew() {
+    // Defensive guard — the disabled button shouldn't fire, but keep the
+    // contract honest if something calls this path programmatically.
+    if (!this.canBrew) {
+      // eslint-disable-next-line no-console
+      console.warn("[melitta-brew-wizard] start brew blocked: canBrew=false");
+      this._error = this._t("brewing.unsupported_error");
+      return;
+    }
     this._phase = "during";
     this._brewing = true;
     this._brewProgress = 0;
@@ -279,6 +297,15 @@ class MelittaBrewWizard extends LitElement {
           background: rgba(244, 67, 54, 0.1); color: var(--error-color);
           padding: var(--mb-space-sm); border-radius: var(--mb-radius-sm);
           margin: var(--mb-space-sm) 0;
+        }
+        .unsupported-note {
+          background: rgba(255, 167, 38, 0.12);
+          color: var(--warning-color, #ffa726);
+          padding: var(--mb-space-sm) var(--mb-space-md);
+          border-radius: var(--mb-radius-sm);
+          margin: var(--mb-space-sm) 0;
+          font-size: var(--mb-font-size-sm);
+          line-height: 1.4;
         }
         .actions {
           display: flex; justify-content: flex-end; gap: var(--mb-space-sm);

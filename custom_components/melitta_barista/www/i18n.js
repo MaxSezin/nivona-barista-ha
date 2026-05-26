@@ -243,6 +243,10 @@ const STRINGS = {
     "wizard.post.no_steps": "No post-brew steps — enjoy your coffee!",
     "wizard.post.finish": "Done",
 
+    "brewing.unsupported_tooltip": "This machine cannot accept custom recipes — recipe is print-only.",
+    "brewing.unsupported_note": "Custom recipe writes are not supported on this machine family. View the recipe and brew it manually via the machine's own recipe selector.",
+    "brewing.unsupported_error": "This machine does not support custom recipe writes.",
+
     "sommelier.constraints_heading": "Constraints and mood",
     "sommelier.cup_size": "Cup size",
     "sommelier.mood_label": "Mood (multi-select)",
@@ -581,6 +585,10 @@ const STRINGS = {
     "wizard.post.title": "Финальные штрихи",
     "wizard.post.no_steps": "Дополнительных шагов нет — наслаждайтесь!",
     "wizard.post.finish": "Готово",
+
+    "brewing.unsupported_tooltip": "Эта машина не принимает пользовательские рецепты — рецепт только для прочтения.",
+    "brewing.unsupported_note": "Запись пользовательских рецептов не поддерживается на этом семействе машин. Прочитайте рецепт и приготовьте его вручную через штатное меню машины.",
+    "brewing.unsupported_error": "Эта машина не поддерживает запись пользовательских рецептов.",
 
     "sommelier.constraints_heading": "Ограничения и настроение",
     "sommelier.cup_size": "Объём чашки",

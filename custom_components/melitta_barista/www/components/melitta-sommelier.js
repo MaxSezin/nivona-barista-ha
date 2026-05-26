@@ -147,6 +147,16 @@ class MelittaSommelier extends LitElement {
     return (this.lang || "").startsWith("ru") ? m.label_ru : m.label_en;
   }
 
+  /**
+   * True when the active machine can accept custom recipe writes.
+   * Optimistic when caps haven't loaded yet — avoids flashing a disabled
+   * button during the first render before /capabilities/get returns.
+   */
+  get _canBrew() {
+    if (this._capabilities == null) return true;
+    return this._capabilities.supports_recipe_writes !== false;
+  }
+
   connectedCallback() {
     super.connectedCallback();
     this._loadAvailable();
@@ -391,6 +401,13 @@ class MelittaSommelier extends LitElement {
   }
 
   _brew(recipeId) {
+    // Defensive guard — the disabled button shouldn't fire, but wrap the
+    // handler so the contract is honest even if something calls this
+    // path programmatically.
+    if (!this._canBrew) {
+      this._error = this._t("brewing.unsupported_note");
+      return;
+    }
     const session = this._session || {};
     const recipes = session.recipes || [];
     const recipe = recipes.find((r) => r.id === recipeId);
@@ -750,7 +767,8 @@ class MelittaSommelier extends LitElement {
                   ${fav ? "★" : "☆"}
                 </button>
                 <button class="brew"
-                  ?disabled=${this._brewing === r.id}
+                  ?disabled=${this._brewing === r.id || !this._canBrew}
+                  title=${!this._canBrew ? this._t("brewing.unsupported_tooltip") : ""}
                   @click=${() => this._brew(r.id)}>
                   ${this._brewing === r.id
                     ? this._t("sommelier.brewing")
@@ -816,6 +834,7 @@ class MelittaSommelier extends LitElement {
         .recipe=${this._wizardRecipe}
         .source=${this._wizardSource || "generated"}
         .sourceId=${this._wizardSourceId}
+        .canBrew=${this._canBrew}
         ?open=${this._wizardRecipe !== null}
         @close=${() => { this._wizardRecipe = null; this._wizardSource = "generated"; this._wizardSourceId = null; }}>
       </melitta-brew-wizard>
@@ -824,6 +843,7 @@ class MelittaSommelier extends LitElement {
         .entryId=${this.entryId}
         .lang=${this.lang}
         .activeProfile=${this._activeProfile}
+        .canBrew=${this._canBrew}
         ?open=${this._favoritesModalOpen}
         @close=${() => { this._favoritesModalOpen = false; }}
         @brew=${(e) => this._onFavoriteBrewRequested(e)}>
@@ -833,6 +853,7 @@ class MelittaSommelier extends LitElement {
         .entryId=${this.entryId}
         .lang=${this.lang}
         .activeProfile=${this._activeProfile}
+        .canBrew=${this._canBrew}
         ?open=${this._historyModalOpen}
         @close=${() => { this._historyModalOpen = false; }}
         @brew=${(e) => this._onHistoryBrewRequested(e)}>

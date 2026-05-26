@@ -93,7 +93,7 @@ def test_derive_for_melitta_barista_ts():
     client = _make_client("barista_ts", "Melitta Barista TS Smart", strength_levels=5)
     cap = derive_capabilities(client)
 
-    assert cap.schema_version == 1
+    assert cap.schema_version == 2
     assert cap.family_key == "barista_ts"
     assert cap.model_name == "Melitta Barista TS Smart"
     assert cap.supported_processes == ("none", "coffee", "milk", "water")
