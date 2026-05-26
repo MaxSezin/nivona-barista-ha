@@ -43,3 +43,4 @@ CLAUDE.md
 # ESPHome secrets — NEVER commit. secrets.yaml.example is tracked as a template.
 esphome/secrets.yaml
 /docs/superpowers/
+docs/SOMMELIER_TZ_DRAFT.md
