@@ -1,4 +1,4 @@
-надо доб# Hardware Compatibility List
+# Hardware Compatibility List
 
 > Living document. Confirmed by the maintainer (✅), the community (👥), or
 > known-broken (❌). If you have a working — or broken — combo not listed
