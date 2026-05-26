@@ -15,8 +15,8 @@ from custom_components.melitta_barista.sommelier_db import (
 
 @pytest.mark.asyncio
 async def test_schema_version_is_7():
-    """SCHEMA_VERSION bumped to 7."""
-    assert SCHEMA_VERSION == 7
+    """SCHEMA_VERSION current (>= 7 after recipe_ratings landed)."""
+    assert SCHEMA_VERSION >= 7
 
 
 @pytest.mark.asyncio

@@ -75,6 +75,9 @@ class MelittaSommelierPresets extends LitElement {
   }
 
   _startEdit(preset) {
+    // System presets are read-only — the UI never renders this button for
+    // them, but guard defensively so a programmatic call can't open the form.
+    if (preset?.is_system) return;
     this._editing = preset.id;
     this._editName = preset.name || "";
     this._editDescription = preset.description || "";
@@ -156,22 +159,38 @@ class MelittaSommelierPresets extends LitElement {
         </div>
       `;
     }
+    const displayName = this._resolveName(preset);
     return html`
       <div class="card">
         <div class="card-head">
-          <h4>${preset.name}</h4>
-          <div class="row-actions">
-            <button class="icon" title=${this._t("presets.rename")}
-                    @click=${() => this._startEdit(preset)}>✎</button>
-            <button class="icon destructive" title=${this._t("presets.delete")}
-                    @click=${() => this._onDelete(preset)}>×</button>
-          </div>
+          <h4>${displayName}</h4>
+          ${preset.is_system
+            ? html`<span class="builtin-badge">${this._t("presets.builtin_badge")}</span>`
+            : html`
+              <div class="row-actions">
+                <button class="icon" title=${this._t("presets.rename")}
+                        @click=${() => this._startEdit(preset)}>✎</button>
+                <button class="icon destructive" title=${this._t("presets.delete")}
+                        @click=${() => this._onDelete(preset)}>×</button>
+              </div>
+            `}
         </div>
         ${preset.description
           ? html`<p class="desc">${preset.description}</p>`
           : ""}
       </div>
     `;
+  }
+
+  /** Resolve a preset's display name through i18n if its payload has a name_key. */
+  _resolveName(preset) {
+    const key = preset?.payload?.name_key;
+    if (typeof key === "string" && key.length > 0) {
+      const resolved = this._t(key);
+      // i18n.t returns the key itself when no entry exists — fall back to name.
+      if (resolved && resolved !== key) return resolved;
+    }
+    return preset.name;
   }
 
   render() {
@@ -214,6 +233,16 @@ class MelittaSommelierPresets extends LitElement {
           font-size: var(--mb-font-size-sm);
         }
         .row-actions { display: flex; gap: var(--mb-space-xs); }
+        .builtin-badge {
+          font-size: 11px;
+          font-weight: 500;
+          padding: 2px 8px;
+          border-radius: 10px;
+          background: var(--secondary-background-color);
+          color: var(--secondary-text-color);
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+        }
         .muted { color: var(--secondary-text-color); }
         .actions {
           display: flex; justify-content: flex-end; gap: var(--mb-space-sm);
