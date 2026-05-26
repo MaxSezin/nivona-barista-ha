@@ -2,6 +2,17 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.68.0] — 2026-05-26
+
+### Added (P7a — R8 slice 1: machine_profile tagging, data layer)
+- **`machine_profile INTEGER` column on `sommelier_presets`, `favorites`, and `generation_sessions`.** NULL means "shared" (visible across all machine profiles); a specific integer binds the row to that profile slot. Existing rows are retro-flagged shared via the v8 → v9 migration's `ALTER TABLE ... ADD COLUMN` (SQLite leaves the new column NULL for existing rows by default). Row dicts now include `machine_profile`.
+- **Optional `machine_profile` parameter** on `melitta_barista/sommelier/presets/add`, `favorites/add`, and `sommelier/generate` (tags the created `generation_sessions` row).
+- **Optional `machine_profile_filter` parameter** on `melitta_barista/sommelier/presets/list`, `favorites/list`, and `history/list`. When set to an integer N, the response includes rows where `machine_profile = N` OR `machine_profile IS NULL`. Shared rows always come through.
+
+### Notes
+- This is the data-layer slice of TZ §R8. The FE work — surfacing the active profile from `client.active_profile`, choosing a profile on save, filtering the lists by current profile — is **P7b**.
+- The `machine_profile` integer here refers to the machine's hardware profile (the same value `client.active_profile` exposes via `melitta_barista/status`), not the Sommelier user-profile concept tracked separately by `sommelier_profiles`.
+
 ## [0.67.0] — 2026-05-26
 
 ### Added (P6b — schema_version envelope, R10 slice 2)
