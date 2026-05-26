@@ -2,6 +2,17 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.71.0] — 2026-05-26
+
+### Added (P8b — R1 slice 2: autofill endpoints + UI modal extension)
+- **`melitta_barista/syrups/autofill` and `melitta_barista/toppings/autofill` WS endpoints.** Mirror `/beans/autofill`: take `{brand, variant?, website?, agent_id?}`, call `_structured_call` against an HA conversation agent, return `{raw, parsed, validation_errors, via, schema_version}`. The `parsed` dict is validated by the new shared `AdditiveAutofillResult` pydantic model (`flavor_notes: list[str]`, `composition: str`, `attributes: dict[str, bool]`, `variant: str`). Backed by `DEFAULT_PROMPTS["syrups_autofill"]` / `toppings_autofill` with `{brand}` / `{variant_hint}` / `{website_hint}` placeholders.
+- **Additives modal: rich-field block for syrups & toppings** in `melitta-additives.js`. Producer dropdown (loads `melitta_barista/producers/list`), Variant input, Flavor-notes chips (removable), Composition textarea, predefined Attribute chips (`vegan` / `sugar_free` / `lactose_free` / `gluten_free` / `nut_free`). Save sends only the populated fields — partial-patch semantics on the backend keep prior values intact for fields the user didn't touch.
+- **"Fill from LLM" button** in the modal. Disabled until the user enters a brand. On success merges the parsed response into the editing state (variant only fills if empty; attributes filtered to `true` values; flavor_notes deduped). Errors stay scoped to a `.autofill-error` banner inside the modal.
+
+### Notes
+- Milk rows are intentionally unchanged — the milk catalogue still uses the flat-list `/milk/get|set` shape. Rewriting it to a CRUD catalogue with the same rich fields requires a legacy shim and stays out of scope.
+- The new fields are persisted via the existing P8a `<table>/add` / `<table>/update` endpoints; no breaking changes to schemas.
+
 ## [0.70.0] — 2026-05-26
 
 ### Added (P8a — R1 slice 1: rich-field syrups & toppings catalogue)
@@ -45,7 +56,7 @@ All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 - **Centralised helper `_send_versioned(connection, msg_id, data, *, schema_version=1)`** in `panel_api.py`, imported by `sommelier_api.py` and `__init__.py`. Every `connection.send_result(...)` call in the integration now routes through this helper. Future endpoints should use it instead of `send_result` directly.
 
 ### Notes
-- Purely additive — existing response keys are unchanged; clients that ignore unknown keys (the default for both Lit and HA companion app) keep working without changes. Tests asserting exact response shape were relaxed to ignore `schema_version` via a small `_assert_result` helper in the affected test files.
+- Purely additive — existing response keys are unchanged; clients that ignore uf nknown keys (the default for both Lit and HA companion app) keep working without changes. Tests asserting exact response shape were relaxed to ignore `schema_version` via a small `_assert_result` helper in the affected test files.
 - TZ §R10's MUST for per-endpoint versioning is now satisfied. Slim list variants and a REST wrapper (§O10.1) stay out of scope until a real consumer asks for them.
 
 ## [0.66.0] — 2026-05-26
