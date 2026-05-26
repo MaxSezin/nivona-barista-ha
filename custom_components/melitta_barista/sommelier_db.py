@@ -14,7 +14,7 @@ import aiosqlite
 
 _LOGGER = logging.getLogger("melitta_barista")
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 _VALID_RATING_TARGET_TYPES = frozenset({"generated", "favorite"})
 
@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS generation_sessions (
     extras_context  TEXT,
     weather_context TEXT,
     llm_agent       TEXT,
-    created_at      TEXT NOT NULL
+    created_at      TEXT NOT NULL,
+    machine_profile INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS generated_recipes (
@@ -123,7 +124,8 @@ CREATE TABLE IF NOT EXISTS favorites (
     source_bean_id      TEXT,
     brew_count          INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL,
-    last_brewed_at      TEXT
+    last_brewed_at      TEXT,
+    machine_profile     INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -156,7 +158,8 @@ CREATE TABLE IF NOT EXISTS sommelier_presets (
   is_system        INTEGER NOT NULL DEFAULT 0,
   dynamic_occasion INTEGER NOT NULL DEFAULT 0,
   created_at       TEXT NOT NULL,
-  updated_at       TEXT
+  updated_at       TEXT,
+  machine_profile  INTEGER
 );
 """
 
@@ -275,6 +278,17 @@ CREATE TABLE IF NOT EXISTS sommelier_presets (
 MIGRATE_V7_TO_V8 = """
 ALTER TABLE sommelier_presets ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sommelier_presets ADD COLUMN dynamic_occasion INTEGER NOT NULL DEFAULT 0;
+"""
+
+# v8 → v9: optional machine_profile INTEGER on presets / favorites /
+# generation_sessions, tagging a row to a specific machine hardware
+# profile slot (1..n). NULL = shared across all profiles, the default
+# for every existing row after migration. The WS surface and FE plumbing
+# ride in P7a Tasks 2 and P7b respectively — this slice is DB-only.
+MIGRATE_V8_TO_V9 = """
+ALTER TABLE sommelier_presets ADD COLUMN machine_profile INTEGER;
+ALTER TABLE favorites ADD COLUMN machine_profile INTEGER;
+ALTER TABLE generation_sessions ADD COLUMN machine_profile INTEGER;
 """
 
 # Four built-in system presets seeded by `async_seed_system_presets` on
@@ -443,6 +457,8 @@ class SommelierDB:
                 migrations.append((7, MIGRATE_V6_TO_V7))
             if current_version < 8:
                 migrations.append((8, MIGRATE_V7_TO_V8))
+            if current_version < 9:
+                migrations.append((9, MIGRATE_V8_TO_V9))
             for target_version, sql in migrations:
                 for stmt in sql.strip().split(";"):
                     stmt = stmt.strip()
@@ -676,16 +692,22 @@ class SommelierDB:
         servings: int = 1,
         extras_context: dict[str, Any] | None = None,
         weather_context: dict[str, Any] | None = None,
+        machine_profile: int | None = None,
     ) -> dict[str, Any]:
-        """Create a generation session with recipes."""
+        """Create a generation session with recipes.
+
+        ``machine_profile`` (1..n) tags the session to a specific machine
+        hardware profile slot; ``None`` keeps the row shared.
+        """
         session_id = _new_id()
         now = _now()
         await self.db.execute(
             """INSERT INTO generation_sessions
                (id, profile_id, mode, preference, mood, occasion, temperature,
                 servings, hopper1_bean_id, hopper2_bean_id,
-                milk_types, extras_context, weather_context, llm_agent, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                milk_types, extras_context, weather_context, llm_agent,
+                created_at, machine_profile)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 session_id,
                 profile_id,
@@ -702,6 +724,7 @@ class SommelierDB:
                 json.dumps(weather_context) if weather_context else None,
                 llm_agent,
                 now,
+                machine_profile,
             ),
         )
         saved_recipes = []
@@ -770,6 +793,7 @@ class SommelierDB:
             "mood": mood,
             "occasion": occasion,
             "created_at": now,
+            "machine_profile": machine_profile,
             "recipes": saved_recipes,
         }
 
@@ -805,14 +829,36 @@ class SommelierDB:
         return d
 
     async def async_list_history(
-        self, limit: int = 20, offset: int = 0
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        *,
+        machine_profile_filter: int | None = None,
     ) -> list[dict[str, Any]]:
-        """List generation sessions with their recipes, newest first."""
-        cursor = await self.db.execute(
-            """SELECT * FROM generation_sessions
-               ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-            (limit, offset),
-        )
+        """List generation sessions with their recipes, newest first.
+
+        Each session row carries ``machine_profile`` (int | None) — NULL
+        means the session is shared across all machine profiles.
+
+        When ``machine_profile_filter`` is supplied (1..n), the returned set
+        is restricted to sessions whose generation_sessions.machine_profile
+        equals the filter OR is NULL (shared rows always come through). The
+        recipe-level LEFT JOIN against recipe_ratings is untouched — the
+        filter applies only to the session row.
+        """
+        if machine_profile_filter is None:
+            cursor = await self.db.execute(
+                """SELECT * FROM generation_sessions
+                   ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                (limit, offset),
+            )
+        else:
+            cursor = await self.db.execute(
+                """SELECT * FROM generation_sessions
+                   WHERE machine_profile = ? OR machine_profile IS NULL
+                   ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                (machine_profile_filter, limit, offset),
+            )
         sessions = []
         for sess_row in await cursor.fetchall():
             sess = _row_to_dict(sess_row)
@@ -866,19 +912,35 @@ class SommelierDB:
 
     # ── Favorites ─────────────────────────────────────────────────────
 
-    async def async_list_favorites(self) -> list[dict[str, Any]]:
+    async def async_list_favorites(
+        self, *, machine_profile_filter: int | None = None
+    ) -> list[dict[str, Any]]:
         """List all favorites, most brewed first.
 
         Each row is enriched with ``rating`` (1..5 or None) and ``note`` (str
         or None) via LEFT JOIN on ``recipe_ratings`` (target_type='favorite').
+        Each row also carries ``machine_profile`` (int | None) from the
+        favorites column.
+
+        When ``machine_profile_filter`` is supplied (1..n), the returned set
+        is restricted to rows whose favorites.machine_profile equals the
+        filter OR is NULL (shared). The recipe_ratings LEFT JOIN remains
+        in place — the filter touches only the favorites row.
         """
-        cursor = await self.db.execute(
-            """SELECT f.*, r.rating AS rating, r.note AS note
-                 FROM favorites f
-                 LEFT JOIN recipe_ratings r
-                   ON r.target_id = f.id AND r.target_type = 'favorite'
-                ORDER BY f.brew_count DESC, f.created_at DESC"""
+        base_sql = (
+            "SELECT f.*, r.rating AS rating, r.note AS note "
+            "FROM favorites f "
+            "LEFT JOIN recipe_ratings r "
+            "  ON r.target_id = f.id AND r.target_type = 'favorite'"
         )
+        params: tuple[Any, ...] = ()
+        if machine_profile_filter is not None:
+            base_sql += (
+                " WHERE f.machine_profile = ? OR f.machine_profile IS NULL"
+            )
+            params = (machine_profile_filter,)
+        base_sql += " ORDER BY f.brew_count DESC, f.created_at DESC"
+        cursor = await self.db.execute(base_sql, params)
         result = []
         for row in await cursor.fetchall():
             d = _row_to_dict(row)
@@ -915,8 +977,8 @@ class SommelierDB:
             """INSERT INTO favorites
                (id, name, description, blend, component1, component2,
                 machine_phases, extras, steps, cup_type, source_recipe_id,
-                source_bean_id, brew_count, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+                source_bean_id, brew_count, created_at, machine_profile)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)""",
             (
                 fav_id,
                 data["name"],
@@ -931,6 +993,7 @@ class SommelierDB:
                 data.get("source_recipe_id"),
                 data.get("source_bean_id"),
                 now,
+                data.get("machine_profile"),
             ),
         )
         await self.db.commit()
@@ -1017,19 +1080,32 @@ class SommelierDB:
 
     # ── Sommelier Presets ─────────────────────────────────────────────
 
-    async def async_list_presets(self) -> list[dict[str, Any]]:
+    async def async_list_presets(
+        self, *, machine_profile_filter: int | None = None
+    ) -> list[dict[str, Any]]:
         """List all sommelier presets, ordered case-insensitively by name.
 
         Each row dict is `{id, name, description, payload, is_system,
-        dynamic_occasion, created_at, updated_at}` with ``payload`` parsed
-        back from JSON to a dict, and the two int flags coerced to ``bool``.
-        ``description`` and ``updated_at`` may be ``None``.
+        dynamic_occasion, created_at, updated_at, machine_profile}` with
+        ``payload`` parsed back from JSON to a dict, and the two int flags
+        coerced to ``bool``. ``description``, ``updated_at`` and
+        ``machine_profile`` may be ``None``.
+
+        When ``machine_profile_filter`` is supplied (1..n), the returned set
+        is restricted to rows whose ``machine_profile`` equals the filter
+        OR is NULL (shared) — shared rows always come through.
         """
-        cursor = await self.db.execute(
+        base_sql = (
             "SELECT id, name, description, payload, is_system, "
-            "dynamic_occasion, created_at, updated_at "
-            "FROM sommelier_presets ORDER BY LOWER(name)"
+            "dynamic_occasion, created_at, updated_at, machine_profile "
+            "FROM sommelier_presets"
         )
+        params: tuple[Any, ...] = ()
+        if machine_profile_filter is not None:
+            base_sql += " WHERE machine_profile = ? OR machine_profile IS NULL"
+            params = (machine_profile_filter,)
+        base_sql += " ORDER BY LOWER(name)"
+        cursor = await self.db.execute(base_sql, params)
         result: list[dict[str, Any]] = []
         for row in await cursor.fetchall():
             d = _row_to_dict(row)
@@ -1076,16 +1152,26 @@ class SommelierDB:
         return inserted
 
     async def async_add_preset(
-        self, name: str, description: str | None, payload: dict
+        self,
+        name: str,
+        description: str | None,
+        payload: dict,
+        *,
+        machine_profile: int | None = None,
     ) -> str:
-        """Insert a new sommelier preset and return its generated id."""
+        """Insert a new sommelier preset and return its generated id.
+
+        ``machine_profile`` (1..n) binds the preset to a specific machine
+        hardware profile slot; the default ``None`` keeps the row shared
+        across every machine profile (existing pre-v9 behaviour).
+        """
         preset_id = _new_id()
         now = _now()
         await self.db.execute(
             "INSERT INTO sommelier_presets "
-            "(id, name, description, payload, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (preset_id, name, description, json.dumps(payload), now),
+            "(id, name, description, payload, created_at, machine_profile) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (preset_id, name, description, json.dumps(payload), now, machine_profile),
         )
         await self.db.commit()
         return preset_id

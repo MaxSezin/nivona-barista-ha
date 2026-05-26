@@ -30,9 +30,9 @@ def _assert_result(connection, msg_id, expected: dict) -> None:
 
 
 @pytest.mark.asyncio
-async def test_schema_version_is_7():
-    """SCHEMA_VERSION current (>= 7 after sommelier_presets table added)."""
-    assert SCHEMA_VERSION >= 7
+async def test_schema_version_is_current():
+    """SCHEMA_VERSION tracks the current schema (>= 9 after P7a machine_profile)."""
+    assert SCHEMA_VERSION >= 9
 
 
 @pytest.mark.asyncio
