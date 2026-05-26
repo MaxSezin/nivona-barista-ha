@@ -1086,9 +1086,17 @@ async def ws_presets_update(
     try:
         changed = await db.async_update_preset(msg["preset_id"], **patch)
     except ValueError as exc:
-        if exc.args and exc.args[0] == "no_fields":
+        code = exc.args[0] if exc.args else "invalid_update"
+        if code == "no_fields":
             connection.send_error(
                 msg["id"], "no_fields", "Provide at least one field to update"
+            )
+            return
+        if code == "system_preset_readonly":
+            connection.send_error(
+                msg["id"],
+                "system_preset_readonly",
+                "Built-in presets cannot be modified",
             )
             return
         connection.send_error(msg["id"], "invalid_update", str(exc))
@@ -1114,7 +1122,19 @@ async def ws_presets_delete(
 ) -> None:
     """Delete a sommelier preset."""
     db = await _async_get_db(hass)
-    deleted = await db.async_delete_preset(msg["preset_id"])
+    try:
+        deleted = await db.async_delete_preset(msg["preset_id"])
+    except ValueError as exc:
+        code = exc.args[0] if exc.args else "invalid_delete"
+        if code == "system_preset_readonly":
+            connection.send_error(
+                msg["id"],
+                "system_preset_readonly",
+                "Built-in presets cannot be deleted",
+            )
+            return
+        connection.send_error(msg["id"], "invalid_delete", str(exc))
+        return
     if not deleted:
         connection.send_error(msg["id"], "not_found", "Preset not found")
         return

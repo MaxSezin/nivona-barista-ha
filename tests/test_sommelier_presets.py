@@ -604,3 +604,66 @@ async def test_user_preset_update_still_works_after_seeding():
         assert removed is True
 
         await db.async_close()
+
+
+@pytest.mark.asyncio
+async def test_ws_presets_update_system_preset_returns_readonly_error():
+    """ws_presets_update on a system preset surfaces 'system_preset_readonly'."""
+    from custom_components.melitta_barista import sommelier_api as sa
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db = SommelierDB(str(Path(tmpdir) / "test.db"))
+        await db.async_setup()
+
+        hass = await _make_hass_with_db(db)
+        connection = _make_connection()
+        msg = {
+            "id": 20,
+            "type": "melitta_barista/sommelier/presets/update",
+            "preset_id": "sys_morning",
+            "description": "tampered",
+        }
+
+        handler = inspect.unwrap(sa.ws_presets_update)
+        await handler(hass, connection, msg)
+
+        connection.send_error.assert_called_once()
+        args, _ = connection.send_error.call_args
+        assert args[0] == 20
+        assert args[1] == "system_preset_readonly"
+        connection.send_result.assert_not_called()
+
+        await db.async_close()
+
+
+@pytest.mark.asyncio
+async def test_ws_presets_delete_system_preset_returns_readonly_error():
+    """ws_presets_delete on a system preset surfaces 'system_preset_readonly'."""
+    from custom_components.melitta_barista import sommelier_api as sa
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db = SommelierDB(str(Path(tmpdir) / "test.db"))
+        await db.async_setup()
+
+        hass = await _make_hass_with_db(db)
+        connection = _make_connection()
+        msg = {
+            "id": 21,
+            "type": "melitta_barista/sommelier/presets/delete",
+            "preset_id": "sys_work",
+        }
+
+        handler = inspect.unwrap(sa.ws_presets_delete)
+        await handler(hass, connection, msg)
+
+        connection.send_error.assert_called_once()
+        args, _ = connection.send_error.call_args
+        assert args[0] == 21
+        assert args[1] == "system_preset_readonly"
+        connection.send_result.assert_not_called()
+
+        # Row still there.
+        rows = [p for p in await db.async_list_presets() if p["id"] == "sys_work"]
+        assert len(rows) == 1
+
+        await db.async_close()
