@@ -616,7 +616,7 @@ class MelittaBeans extends LitElement {
           ` : ""}
           ${this._autofillErrors && this._autofillErrors.length ? html`
             <div class="validation-errors">
-              <strong>Validation errors:</strong>
+              <strong>${this._t("common.validation_errors")}</strong>
               <ul>
                 ${this._autofillErrors.map((err) => html`
                   <li><code>${err.loc}</code>: ${err.msg}</li>

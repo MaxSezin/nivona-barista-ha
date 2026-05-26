@@ -165,6 +165,14 @@ const STRINGS = {
     "presets.delete_failed": "Could not delete preset",
     "presets.load_failed": "Could not load presets",
     "presets.applied_toast": "Preset \"{name}\" applied",
+    "presets.builtin_badge": "built-in",
+    "presets.system_readonly_error": "Built-in presets cannot be modified.",
+    "presets.system.morning": "Morning",
+    "presets.system.after_lunch": "After lunch",
+    "presets.system.work": "Work",
+    "presets.system.guests": "Guests",
+
+    "common.validation_errors": "Validation errors:",
 
     "favorites.modal_title": "Saved favorites",
     "favorites.load_failed": "Failed to load favorites",
@@ -477,6 +485,14 @@ const STRINGS = {
     "presets.delete_failed": "Не удалось удалить пресет",
     "presets.load_failed": "Не удалось загрузить пресеты",
     "presets.applied_toast": "Пресет «{name}» применён",
+    "presets.builtin_badge": "встроенный",
+    "presets.system_readonly_error": "Встроенные пресеты нельзя изменить.",
+    "presets.system.morning": "Утро",
+    "presets.system.after_lunch": "После обеда",
+    "presets.system.work": "Работа",
+    "presets.system.guests": "Гости",
+
+    "common.validation_errors": "Ошибки валидации:",
 
     "favorites.modal_title": "Сохранённые избранные",
     "favorites.load_failed": "Не удалось загрузить избранные",
