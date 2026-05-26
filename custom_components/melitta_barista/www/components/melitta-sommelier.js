@@ -184,11 +184,27 @@ class MelittaSommelier extends LitElement {
     if (typeof p.preference === "string") this._preference = p.preference;
     if (typeof p.cup_size === "string") this._cupSize = p.cup_size;
     if (Array.isArray(p.moods)) this._moods = [...p.moods];
-    if (typeof p.occasion === "string") this._occasion = p.occasion;
+    // dynamic_occasion wins over the snapshot value — system presets ship
+    // with it set so "Morning" applied at 3pm uses occasion=after_lunch.
+    if (p.dynamic_occasion === true) {
+      this._occasion = this._suggestOccasionByTime();
+    } else if (typeof p.occasion === "string") {
+      this._occasion = p.occasion;
+    }
     if (typeof p.temperature === "string") this._temperature = p.temperature;
     if (typeof p.caffeine_pref === "string") this._caffeine = p.caffeine_pref;
     if (Array.isArray(p.dietary)) this._dietary = [...p.dietary];
-    this._showToast(this._t("presets.applied_toast", { name: preset.name }));
+    this._showToast(this._t("presets.applied_toast", { name: this._presetDisplayName(preset) }));
+  }
+
+  /** Resolve a preset's display name via payload.name_key when present. */
+  _presetDisplayName(preset) {
+    const key = preset?.payload?.name_key;
+    if (typeof key === "string" && key.length > 0) {
+      const resolved = this._t(key);
+      if (resolved && resolved !== key) return resolved;
+    }
+    return preset.name;
   }
 
   _showToast(message, kind = "info") {
@@ -439,7 +455,7 @@ class MelittaSommelier extends LitElement {
               @change=${(e) => this._onPresetSelectChange(e)}>
               <option value="">${this._t("presets.none")}</option>
               ${this._presets.map((p) => html`
-                <option value=${p.id} ?selected=${p.id === this._selectedPresetId}>${p.name}</option>
+                <option value=${p.id} ?selected=${p.id === this._selectedPresetId}>${this._presetDisplayName(p)}</option>
               `)}
             </select>
           </label>
