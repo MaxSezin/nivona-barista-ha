@@ -2,6 +2,17 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.65.0] — 2026-05-26
+
+### Added (P5b — Sommelier presets closing slice + §O7.1)
+- **Four built-in presets** seeded on first setup: Morning, After lunch, Work, Guests. Names resolve through i18n (`presets.system.*`), so the select shows them in the user's language. All four ship with `dynamic_occasion=true` (see below), mirroring the existing `_suggestOccasionByTime()` time bands.
+- **`dynamic_occasion` flag in the preset payload.** When `true`, `_applyPreset` recomputes `occasion` from the current local time instead of taking the snapshot value — applying "Morning" at 3pm fires the form with `occasion=after_lunch`. System presets default to `true`; user-created presets default to `false` (snapshot semantics).
+- **System presets are read-only.** The DB layer raises `ValueError("system_preset_readonly")` for update/delete on `is_system=1` rows; the WS handlers translate that into `send_error("system_preset_readonly", ...)`. The Manage modal hides the rename + delete buttons for built-ins and shows a `(built-in)` badge instead.
+- **DB schema v7 → v8.** Adds `is_system` and `dynamic_occasion` columns to `sommelier_presets`. Existing user presets retain `is_system=0` and `dynamic_occasion=0`. Seeding runs idempotently at the end of `async_setup`.
+
+### Fixed (R9)
+- `melitta-beans.js:619` rendered "Validation errors:" as a hardcoded literal — the last visible string outside `i18n.js`. It now lives in `common.validation_errors` with English and Russian entries.
+
 ## [0.64.0] — 2026-05-26
 
 ### Added (P5a — Sommelier presets, R7 slice 1)
