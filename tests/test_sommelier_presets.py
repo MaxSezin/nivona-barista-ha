@@ -16,6 +16,19 @@ from custom_components.melitta_barista.sommelier_db import (
 )
 
 
+def _assert_result(connection, msg_id, expected: dict) -> None:
+    """Assert send_result once with expected payload, ignoring schema_version.
+
+    P6b (0.67.0) added a `schema_version: int` envelope to every WS response.
+    """
+    connection.send_result.assert_called_once()
+    actual_id, actual_payload = connection.send_result.call_args.args
+    assert actual_id == msg_id
+    assert {
+        k: v for k, v in actual_payload.items() if k != "schema_version"
+    } == expected
+
+
 @pytest.mark.asyncio
 async def test_schema_version_is_7():
     """SCHEMA_VERSION current (>= 7 after sommelier_presets table added)."""
@@ -296,7 +309,7 @@ async def test_ws_presets_update_patches_description_only():
         handler = inspect.unwrap(sa.ws_presets_update)
         await handler(hass, connection, msg)
 
-        connection.send_result.assert_called_once_with(2, {"updated": True})
+        _assert_result(connection, 2, {"updated": True})
         connection.send_error.assert_not_called()
 
         presets = [p for p in await db.async_list_presets() if not p.get("is_system")]
@@ -389,7 +402,7 @@ async def test_ws_presets_delete_removes():
         handler = inspect.unwrap(sa.ws_presets_delete)
         await handler(hass, connection, msg)
 
-        connection.send_result.assert_called_once_with(5, {"deleted": True})
+        _assert_result(connection, 5, {"deleted": True})
         connection.send_error.assert_not_called()
         user_rows = [p for p in await db.async_list_presets() if not p.get("is_system")]
         assert user_rows == []
