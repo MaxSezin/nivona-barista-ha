@@ -125,7 +125,11 @@ async def test_ws_history_clear_default_keep():
 
     db.async_clear_history.assert_awaited_once_with(keep_favorited=True)
     connection.send_result.assert_called_once()
-    assert connection.send_result.call_args.args[1] == {"cleared": 3}
+    payload = {
+        k: v for k, v in connection.send_result.call_args.args[1].items()
+        if k != "schema_version"
+    }
+    assert payload == {"cleared": 3}
 
 
 @pytest.mark.asyncio

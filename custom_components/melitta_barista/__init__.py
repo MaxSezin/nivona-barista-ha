@@ -356,6 +356,7 @@ def _async_register_panel_websocket(hass: HomeAssistant) -> None:
     )
     @callback
     def _ws_list_entries(hass_, connection, msg):
+        from .panel_api import _send_versioned  # noqa: PLC0415
         entries = [
             {
                 "entry_id": entry.entry_id,
@@ -365,7 +366,7 @@ def _async_register_panel_websocket(hass: HomeAssistant) -> None:
             }
             for entry in hass_.config_entries.async_entries(DOMAIN)
         ]
-        connection.send_result(msg["id"], {"entries": entries})
+        _send_versioned(connection, msg["id"], {"entries": entries})
 
     async_register_command(hass, _ws_list_entries)
     domain_data["panel_ws_registered"] = True

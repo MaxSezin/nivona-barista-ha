@@ -19,6 +19,21 @@ import pytest
 from custom_components.melitta_barista import panel_api
 
 
+def _assert_result(connection, msg_id, expected: dict) -> None:
+    """Assert send_result was called once with expected payload, ignoring schema_version.
+
+    P6b (0.67.0) injects a `schema_version: int` key into every WS response;
+    these tests pre-date that change and assert on the business payload.
+    """
+    connection.send_result.assert_called_once()
+    actual_id, actual_payload = connection.send_result.call_args.args
+    assert actual_id == msg_id
+    assert {
+        k: v for k, v in actual_payload.items() if k != "schema_version"
+    } == expected
+
+
+
 class _DbShim:
     """Minimal stand-in for SommelierDB exposing the `._db` attribute.
 
@@ -255,7 +270,7 @@ async def test_update_can_toggle_available(fresh_db_shim):
         )
 
     connection.send_error.assert_not_called()
-    connection.send_result.assert_called_once_with(2, {"updated": True})
+    _assert_result(connection, 2, {"updated": True})
 
     cursor = await fresh_db_shim._db.execute(
         "SELECT available FROM syrups WHERE id = ?", (syrup_id,)
@@ -363,7 +378,7 @@ async def test_set_available_endpoint_toggles_catalogue_without_user_extras_mirr
         )
 
     connection.send_error.assert_not_called()
-    connection.send_result.assert_called_once_with(10, {"updated": True})
+    _assert_result(connection, 10, {"updated": True})
 
     # Catalogue row got toggled.
     cursor = await fresh_db_shim._db.execute(
@@ -458,7 +473,7 @@ async def test_set_available_enabling_leaves_user_extras_alone(fresh_db_shim):
         )
 
     connection.send_error.assert_not_called()
-    connection.send_result.assert_called_once_with(12, {"updated": True})
+    _assert_result(connection, 12, {"updated": True})
 
     # Catalogue row now ON.
     cursor = await fresh_db_shim._db.execute(

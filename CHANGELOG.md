@@ -2,6 +2,16 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.67.0] — 2026-05-26
+
+### Added (P6b — schema_version envelope, R10 slice 2)
+- **Every `melitta_barista/*` WS response now carries a `schema_version: int` key** alongside its existing fields. `API_VERSION` (from 0.66.0) still tracks the integration-wide surface; `schema_version` is the per-endpoint discriminator that lets consumers pin against an individual endpoint's response shape. All endpoints ship at `schema_version = 1` in this release.
+- **Centralised helper `_send_versioned(connection, msg_id, data, *, schema_version=1)`** in `panel_api.py`, imported by `sommelier_api.py` and `__init__.py`. Every `connection.send_result(...)` call in the integration now routes through this helper. Future endpoints should use it instead of `send_result` directly.
+
+### Notes
+- Purely additive — existing response keys are unchanged; clients that ignore unknown keys (the default for both Lit and HA companion app) keep working without changes. Tests asserting exact response shape were relaxed to ignore `schema_version` via a small `_assert_result` helper in the affected test files.
+- TZ §R10's MUST for per-endpoint versioning is now satisfied. Slim list variants and a REST wrapper (§O10.1) stay out of scope until a real consumer asks for them.
+
 ## [0.66.0] — 2026-05-26
 
 ### Added (P6a — API contract foundation, R10 slice 1)
