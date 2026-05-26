@@ -35,8 +35,24 @@ body:
     attributes:
       label: BLE connection type
       options:
+        - ESPHome BLE proxy (recommended / primary tested path)
         - Local Bluetooth adapter
-        - ESPHome BLE proxy
+    validations:
+      required: true
+  - type: input
+    id: ble_adapter
+    attributes:
+      label: BLE adapter — chipset / model
+      description: |
+        Be specific. Examples:
+          • ESPHome proxy: "Seeed XIAO ESP32-C6, ESPHome 2024.10 bluetooth_proxy"
+          • USB dongle: "TP-Link UB500 (RTL8761B)" or "CSR8510 USB dongle"
+          • Host built-in: "Raspberry Pi 5 onboard (CYW43455)" / "Intel AX210"
+        We need this to update the Hardware Compatibility List
+        (https://github.com/dzerik/melitta-barista-ha/blob/main/HCL.md) and
+        to route triage. Local-adapter / BlueZ quirks tend to be
+        chipset-specific.
+      placeholder: "e.g. Seeed XIAO ESP32-C6 (ESPHome bluetooth_proxy)"
     validations:
       required: true
   - type: textarea
