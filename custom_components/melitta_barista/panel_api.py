@@ -741,6 +741,80 @@ async def _ws_beans_autofill(hass, connection, msg):
     _send_versioned(connection, msg["id"], result)
 
 
+# syrups/autofill + toppings/autofill -------------------------------------
+
+
+def _make_autofill_handler(table: str):
+    """Build a WS handler for ``melitta_barista/<table>/autofill``.
+
+    Mirrors ``_ws_beans_autofill`` but for the additive tables (syrups /
+    toppings). The handler takes ``{brand, variant?, website?, agent_id?}``
+    and routes the request through ``_structured_call`` against the
+    ``<table>_autofill`` slot (which is bound to ``AdditiveAutofillResult``
+    in ``RESPONSE_MODELS``).
+
+    ``variant_hint`` is auto-built the same way as ``website_hint`` in
+    beans/autofill: an empty string when not provided, an LLM-friendly
+    fragment otherwise. This keeps the user-editable prompt template
+    free of conditional logic.
+    """
+    slot = f"{table}_autofill"
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): f"melitta_barista/{table}/autofill",
+        vol.Required("brand"): str,
+        vol.Optional("variant"): str,
+        vol.Optional("website"): str,
+        vol.Optional("agent_id"): str,
+    })
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def _ws_autofill(hass, connection, msg):
+        """LLM-backed enrichment for a syrup / topping from brand+variant.
+
+        Same hybrid path as ``/beans/autofill`` (SmartChain native
+        structured output when available, JSON-schema-in-prompt +
+        pydantic validation otherwise). Returns
+        ``{raw, parsed, validation_errors, via}`` via
+        ``_send_versioned``.
+        """
+        variant = (msg.get("variant") or "").strip()
+        variant_hint = f" (variant {variant!r})" if variant else ""
+        website = (msg.get("website") or "").strip()
+        website_hint = (
+            f"\n\nProducer page URL: {website}. If you have the ability to "
+            "browse the web, prefer the page content over your training data; "
+            "otherwise use it as a hint of what kind of product this is."
+            if website else ""
+        )
+        fmt_vars = {
+            "brand": msg["brand"],
+            "variant": variant,
+            "variant_hint": variant_hint,
+            "website_hint": website_hint,
+        }
+        agent_id = await _resolve_agent_id(hass, msg)
+
+        try:
+            result = await _structured_call(
+                hass, slot, fmt_vars, agent_id, connection.context(msg),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("%s/autofill conversation call failed", table)
+            connection.send_error(
+                msg["id"], "conversation_error", "LLM call failed; see HA logs"
+            )
+            return
+
+        _send_versioned(connection, msg["id"], result)
+
+    return _ws_autofill
+
+
+_ws_syrups_autofill = _make_autofill_handler("syrups")
+_ws_toppings_autofill = _make_autofill_handler("toppings")
+
+
 # additives: syrups + toppings --------------------------------------------
 
 
@@ -1055,6 +1129,26 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "and flavor_notes to a single-element list with the producer's "
         "most likely flavour family. Be concise and accurate.{website_hint}"
     ),
+    "syrups_autofill": (
+        "You are a flavour expert. Describe the syrup brand {brand!r}"
+        "{variant_hint} for use in coffee drinks: dominant flavor notes, "
+        "the syrup's composition (sweetener type, key ingredients), and a "
+        "set of attribute flags applicable to it (e.g. \"sugar_free\", "
+        "\"vegan\", \"lactose_free\", \"gluten_free\"). NEVER invent facts: "
+        "if you can't determine a field, return an empty list for "
+        "flavor_notes, empty string for composition, or an empty object "
+        "for attributes. Be concise and accurate.{website_hint}"
+    ),
+    "toppings_autofill": (
+        "You are a flavour expert. Describe the topping brand {brand!r}"
+        "{variant_hint} for use on coffee drinks: dominant flavor notes, "
+        "the topping's composition (key ingredients, dairy / nut origin), "
+        "and a set of attribute flags applicable to it (e.g. \"vegan\", "
+        "\"lactose_free\", \"gluten_free\", \"nut_free\"). NEVER invent "
+        "facts: if you can't determine a field, return an empty list for "
+        "flavor_notes, empty string for composition, or an empty object "
+        "for attributes. Be concise and accurate.{website_hint}"
+    ),
     "sommelier_intro": (
         "You are an expert barista and coffee sommelier. Generate exactly "
         "{count} unique coffee recipes for a bean-to-cup smart coffee machine. "
@@ -1077,6 +1171,22 @@ PROMPT_PLACEHOLDERS: dict[str, list[dict[str, str]]] = {
                  "configured, empty otherwise. The model decides whether "
                  "to fetch it (only agents with web-tools can)."},
     ],
+    "syrups_autofill": [
+        {"name": "brand", "desc": "Producer / brand (e.g. Monin)"},
+        {"name": "variant_hint",
+         "desc": "Auto-built fragment mentioning the variant if set, empty otherwise."},
+        {"name": "website_hint",
+         "desc": "Auto-built fragment mentioning the producer URL when "
+                 "configured (see beans_autofill)."},
+    ],
+    "toppings_autofill": [
+        {"name": "brand", "desc": "Producer / brand (e.g. Monin)"},
+        {"name": "variant_hint",
+         "desc": "Auto-built fragment mentioning the variant if set, empty otherwise."},
+        {"name": "website_hint",
+         "desc": "Auto-built fragment mentioning the producer URL when "
+                 "configured (see beans_autofill)."},
+    ],
     "sommelier_intro": [
         {"name": "count", "desc": "Number of recipes to generate (1–5)"},
     ],
@@ -1087,6 +1197,23 @@ PROMPT_PLACEHOLDERS: dict[str, list[dict[str, str]]] = {
 # purposes: they emit JSON Schema (appended to the prompt verbatim so the LLM
 # sees the exact contract) and they validate the parsed response. When the
 # model rejects the data we retry once with the validation errors as feedback.
+class AdditiveAutofillResult(BaseModel):
+    """Schema for syrup/topping LLM autofill responses.
+
+    Mirrors `BeanAutofillResult` in spirit: the LLM is asked to fill
+    in tasting notes, composition, and an optional flat key/value
+    attribute map. Required-list semantics (no defaults) surface
+    incomplete responses instead of accepting silent NULLs. The LLM
+    is told to use empty list / empty dict / empty string only when
+    it truly has no information.
+    """
+
+    flavor_notes: list[str] = Field(min_length=1)
+    composition: str = ""
+    attributes: dict[str, bool] = Field(default_factory=dict)
+    variant: str = ""
+
+
 class BeanAutofillResult(BaseModel):
     """Strict schema for the beans autofill LLM response.
 
@@ -1195,6 +1322,8 @@ class SommelierGenerateResult(BaseModel):
 
 RESPONSE_MODELS: dict[str, type[BaseModel]] = {
     "beans_autofill": BeanAutofillResult,
+    "syrups_autofill": AdditiveAutofillResult,
+    "toppings_autofill": AdditiveAutofillResult,
     "sommelier_intro": SommelierGenerateResult,
 }
 
@@ -1622,6 +1751,9 @@ def async_register_panel_websocket(hass: HomeAssistant) -> None:
 
     # beans LLM autofill
     async_register_command(hass, _ws_beans_autofill)
+    # syrups + toppings LLM autofill (mirror of /beans/autofill for P8b)
+    async_register_command(hass, _ws_syrups_autofill)
+    async_register_command(hass, _ws_toppings_autofill)
 
     # additives — syrups + toppings (milk lives in sommelier_api.py)
     for handler in (*_SYRUPS_HANDLERS, *_TOPPINGS_HANDLERS):
