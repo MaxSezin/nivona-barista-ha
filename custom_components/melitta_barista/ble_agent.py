@@ -196,7 +196,20 @@ async def async_pair_device(address: str, timeout: float = 30.0) -> str:
     adapter = None
 
     try:
-        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+        try:
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+        except Exception:  # noqa: BLE001 — dbus_fast raises many shapes
+            # No reachable system D-Bus (typical in HA OS containers
+            # without a host BlueZ stack). Functionally equivalent to
+            # "no Adapter1" — the device is reached via an ESPHome BLE
+            # proxy that handles bonding at the ESP32 level. Reported
+            # in #15.
+            _LOGGER.info(
+                "System D-Bus not reachable. "
+                "Assuming ESPHome BLE proxy — skipping D-Bus pairing for %s",
+                address,
+            )
+            return "ok"
 
         adapter = await _get_adapter(bus)
         if adapter is None:

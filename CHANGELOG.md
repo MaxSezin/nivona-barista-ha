@@ -2,6 +2,15 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.76.0] — 2026-05-27
+
+### Fixed
+- **Nivona advertisement regex is now permissive about digit-count and dash-count** (#15). Every new Nivona model series has revealed a new advertisement shape — NIVO 8107 / NICR 6xx-7xx use 10 digits + 5 dashes, NICR 930 uses 15 digits with no dashes, NICR 779 (#14) uses 15 digits + 5 dashes, and NIVO 8001 (#15) uses 17 digits + 3 dashes. The `ble_name_regex` previously enumerated these combinations individually and required a follow-up patch for each new model; it now accepts any `\d{10,}` serial with optional trailing dashes (and optional `NIVONA-` prefix). Brand discrimination from Melitta is unaffected because Melitta's tighter 6-prefix regex is still matched first.
+- **D-Bus connect failure in `ble_agent` now falls through to "skip pairing" instead of being reported as a pairing failure** (#15). When the system D-Bus is unreachable (typical for HA OS containers without a host BlueZ stack — the device is reached via ESPHome BLE proxy that handles bonding at the ESP32 level), the integration used to bubble the `MessageBus.connect()` exception up as `pairing_failed`. It now treats this case the same as a missing `Adapter1` interface — `async_pair_device` returns `"ok"` with an info-log, and pairing succeeds against the proxy.
+
+### Notes
+- `_PREFIX_TO_FAMILY` still mirrors the official Nivona app's `ToCoffeeMachineModel` table exactly (`8101`/`8103`/`8107` → `8000`). The reporter of #15 advertised a serial starting with `81…` (17 digits + 3 dashes), but the full prefix is obfuscated and the decompiled APK v3.8.6 doesn't know any other 81xx variant either. Discovery and pairing now succeed thanks to the permissive regex; if the resulting family ends up `None`, surface the issue and add the prefix once the reporter shares the first 4 serial digits — we'd rather show "unknown model" than guess capabilities wrongly.
+
 ## [0.75.0] — 2026-05-27
 
 ### Added (panel)

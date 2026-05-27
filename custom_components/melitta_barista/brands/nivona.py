@@ -969,7 +969,12 @@ _NIVONA_FAMILIES: dict[str, MachineCapabilities] = {
 # Serial-prefix → family. Exhaustive 4-char then 3-char cascade matches
 # the upstream `detectModelInfo` cascade.
 _PREFIX_TO_FAMILY: dict[str, str] = {
-    # 4-char (NIVO 8xxx serials)
+    # 4-char (NIVO 8xxx serials). Mirrors the official Nivona app's
+    # `ToCoffeeMachineModel(string serial)` table exactly (decompiled
+    # APK v3.8.6) — only 8101/8103/8107 are known model codes in the
+    # 8000 family. Newer 81xx variants reported in the field (#15) are
+    # left to fall through to "unknown family"; we'd rather surface
+    # that honestly than guess.
     "8101": "8000", "8103": "8000", "8107": "8000",
     # 3-char (NICR series; matched after 4-char miss)
     "660": "600", "670": "600", "675": "600", "680": "600",
@@ -997,20 +1002,22 @@ class NivonaProfile:
     service_uuid: ClassVar[str] = "0000ad00-b35c-11e4-9813-0002a5d5c51b"
     handshake_response_size: ClassVar[int] = 8
 
-    # Nivona advertisement: 10-digit serial + exactly 5 trailing dashes
-    # (e.g. "8107000001-----"). Some older captures show an optional
-    # "NIVONA-" prefix, but real machines advertise bare-serial form so
-    # the official Android app can derive the model code via
-    # Substring(0, 4) — keeping the "NIVONA-" prefix would make it
-    # resolve to "NIVO" and no family would match (see EugsterMobileApp
-    # name-filter logic). The 5-dash suffix is the distinguisher from
-    # Melitta's ``8xxx + hex`` advertisement format.
-    # Some Nivona models (e.g. NICR 779, reported in #14) advertise as a
-    # 15-digit serial *with* the 5-dash trailing suffix, not just a bare
-    # 15-digit form. Allow 10..15 digits + 5 dashes alongside the
-    # original 15-digit-no-dashes branch.
+    # Nivona advertisement: a numeric serial (optionally prefixed with
+    # "NIVONA-") followed by zero or more trailing dashes. We no longer
+    # enumerate exact digit/dash counts — every new model series has
+    # revealed a new combination:
+    #   - NIVO 8107 / NICR 6xx-7xx: 10 digits + 5 dashes
+    #   - NICR 930: 15 digits, no dashes
+    #   - NICR 779 (#14): 15 digits + 5 dashes
+    #   - NIVO 8001 (#15): 17 digits + 3 dashes
+    # Brand discrimination from Melitta still works because Melitta's
+    # regex is matched FIRST and requires one of 6 specific hex-digit
+    # prefixes followed by hex characters — anything pure-numeric (with
+    # optional dashes) that doesn't match Melitta falls through to
+    # Nivona. Family/model identification happens separately via
+    # `detect_family()` against `_PREFIX_TO_FAMILY`.
     ble_name_regex: ClassVar[re.Pattern[str]] = re.compile(
-        r"^(?:NIVONA-)?(?:\d{15}|\d{10,15}-----)$"
+        r"^(?:NIVONA-)?\d{10,}-*$"
     )
 
     # Nivona machines do not expose recipe read/write commands.

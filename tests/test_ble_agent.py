@@ -416,8 +416,13 @@ class TestAsyncPairDevice:
         assert result == "pairing_failed"
 
     @pytest.mark.asyncio
-    async def test_dbus_connection_error_returns_pairing_failed(self) -> None:
-        """When D-Bus connection itself fails, returns 'pairing_failed'."""
+    async def test_dbus_connection_error_skips_pairing(self) -> None:
+        """When the system D-Bus is unreachable (no local BlueZ stack —
+        typical for HA OS supervised installs that rely on an ESPHome
+        BLE proxy), pairing is skipped rather than reported as a
+        pairing failure. The proxy handles BLE bonding at the ESP32
+        level, so a missing D-Bus is functionally equivalent to a
+        missing Adapter1. Reported in #15."""
         mod = _import_ble_agent()
 
         constructor = MagicMock()
@@ -428,7 +433,7 @@ class TestAsyncPairDevice:
         with patch.object(mod, "MessageBus", constructor):
             result = await mod.async_pair_device(MOCK_ADDRESS, timeout=5.0)
 
-        assert result == "pairing_failed"
+        assert result == "ok"
 
     @pytest.mark.asyncio
     async def test_device_not_known_starts_discovery(self) -> None:
