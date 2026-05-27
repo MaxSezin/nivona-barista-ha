@@ -90,18 +90,28 @@ def test_advertisement_matches_nivona_pattern():
     assert profile is not None and profile.brand_slug == "nivona"
     # Detected family should be "700" since 779 prefix routes there.
     assert profile.detect_family("779573191222251-----") == "700"
+    # 17-digit + 3-dash form — observed on NIVO 8001 in #15. The regex
+    # used to enumerate digit-counts; the new permissive contract is
+    # "any digit-string + optional trailing dashes".
+    profile = detect_from_advertisement("80010000000000000---")
+    assert profile is not None and profile.brand_slug == "nivona"
 
 
 def test_advertisement_no_match():
     assert detect_from_advertisement("Random Device") is None
     assert detect_from_advertisement("") is None
     assert detect_from_advertisement(None) is None
-    # Purely numeric names that should NOT match Nivona
-    assert detect_from_advertisement("1234567890") is None       # 10 digits, no dashes
-    assert detect_from_advertisement("12345678901234") is None   # 14 digits
-    # Sixteen digits + 5 dashes — must NOT be treated as Nivona (the
-    # 10..15-digit range is the intentional contract from #14).
-    assert detect_from_advertisement("7795731912222515-----") is None
+    # Too short to be a serial — must NOT match Nivona.
+    assert detect_from_advertisement("123456789") is None         # 9 digits
+    # Letters anywhere disqualify Nivona (Melitta uses hex prefixes
+    # already excluded by Melitta's stricter regex).
+    assert detect_from_advertisement("ABCDEFGH--") is None
+    # Note: as of #15 the Nivona regex is intentionally permissive
+    # about digit-count and dash-count — every new Nivona model
+    # series (NICR 779 in #14, NIVO 8001 in #15) revealed a new
+    # combination, so anything shaped like "10+ digits and optional
+    # trailing dashes" now resolves to Nivona. Melitta is still
+    # matched first via its tight 6-prefix regex.
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +188,12 @@ def test_nivona_detect_family_from_serial():
     assert np_.detect_family("NIVONA-7565730710-----") == "700"
     # NIVO 8101 → family 8000 (via 4-char prefix "8101")
     assert np_.detect_family("NIVONA-8101000000-----") == "8000"
+    # 81xx serial with an unknown 4-char prefix returns None: we mirror
+    # the official APK table (8101/8103/8107) exactly, so a hypothetical
+    # 8108 serial falls through to "unknown family" rather than being
+    # guessed into the 8000 bucket. Discovery still succeeds via the
+    # permissive regex, the user just sees an "unknown model" entry.
+    assert np_.detect_family("81080000000000000---") is None
     # NICR 660 → family 600
     assert np_.detect_family("NIVONA-6605730710-----") == "600"
     # Unknown serial
