@@ -2,6 +2,21 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.75.0] — 2026-05-27
+
+### Added (panel)
+- **Dedicated "Producers" tab** in the admin panel. Producers (the table referenced from both Beans and Additives via `producer_id`) get their own top-level CRUD UI between Additives and System. The inline producer-management widget in the Beans tab is removed; the producer dropdown inside the Bean Add/Edit modal stays as a selector. Empty list shows a hint pointing to the new tab. EN + RU i18n.
+- **Per-row "in stock" toggle on milk types** in the Additives panel, matching the syrup / topping pattern from P4a (`✓` / `○` chip, dimmed row when out-of-stock). Backed by two new WS endpoints: `melitta_barista/sommelier/milk/list_full` (returns all rows with the `available` flag) and `melitta_barista/sommelier/milk/set_available` (per-row upsert toggle). The existing `melitta_barista/sommelier/milk/get` continues to return only in-stock milks, so the Sommelier chip picker respects availability with zero FE change.
+
+### Changed
+- **Additives Add/Edit modal field order matches Beans**: producer dropdown → name → Fill-from-LLM → variant → notes → composition → flavor-notes chips → attribute chips. The standalone "Brand" text input is removed — the producer dropdown already covers that role. On save, the `brand` DB column is populated from the selected producer's name so existing queries / external consumers keep working (no migration).
+- **LLM autofill for syrups / toppings takes `(name, producer_id)` instead of free-text `brand`.** The handler resolves the producer's name (and falls back to the producer's stored website when the message omits `website`) via a SELECT against `producers`. `DEFAULT_PROMPTS["syrups_autofill"]` / `["toppings_autofill"]` now reference `{name}` and `{producer}`; the `{brand}` placeholder is dropped. `PROMPT_PLACEHOLDERS` updated accordingly. Beans autofill is unchanged (it already used the `{brand}` + `{product}` pair correctly).
+- **`async_set_milk(list)` preserves `available` on surviving rows.** The previous DELETE-everything-then-INSERT-with-default-true behavior resurrected any milk the user had toggled off. New behavior is closer to UPSERT-with-prune: `INSERT OR IGNORE` for new rows, `DELETE` for rows not in the new list, leave the rest untouched. Empty-list still wipes the table.
+
+### Notes
+- The `brand` column on syrups / toppings stays — no migration. The UI no longer exposes it for direct edit, but it's still populated on save from the producer dropdown so downstream queries / external consumers see a stable value.
+- Five new tests on top of the existing milk-config + autofill suites: bulk-save-preserves-toggle, single-row-upsert, list_full-returns-all-rows, autofill-unknown-producer-returns-not-found, autofill-falls-back-to-producer-website.
+
 ## [0.74.2] — 2026-05-26
 
 ### Fixed
