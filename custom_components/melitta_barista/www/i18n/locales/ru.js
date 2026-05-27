@@ -143,7 +143,7 @@ export default {
   "additives.attr.nut_free": "Без орехов",
   "additives.fill_from_llm": "Заполнить через ИИ",
   "additives.fill_failed": "Автозаполнение не удалось.",
-  "additives.fill_needs_brand": "Сначала укажите бренд для автозаполнения.",
+  "additives.fill_needs_producer_and_name": "Выберите производителя и укажите название для автозаполнения.",
 
   "producers.title": "Производители",
   "producers.add": "Добавить",

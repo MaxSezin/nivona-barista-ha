@@ -748,13 +748,20 @@ def _make_autofill_handler(table: str):
     """Build a WS handler for ``melitta_barista/<table>/autofill``.
 
     Mirrors ``_ws_beans_autofill`` but for the additive tables (syrups /
-    toppings). The handler takes ``{brand, variant?, website?, agent_id?}``
-    and routes the request through ``_structured_call`` against the
-    ``<table>_autofill`` slot (which is bound to ``AdditiveAutofillResult``
-    in ``RESPONSE_MODELS``).
+    toppings). The handler takes
+    ``{name, producer_id, variant?, website?, agent_id?}`` and routes the
+    request through ``_structured_call`` against the ``<table>_autofill``
+    slot (which is bound to ``AdditiveAutofillResult`` in
+    ``RESPONSE_MODELS``).
 
-    ``variant_hint`` is auto-built the same way as ``website_hint`` in
-    beans/autofill: an empty string when not provided, an LLM-friendly
+    The producer's name (and website fallback) is resolved from
+    ``producer_id`` via the ``producers`` table — keeping a single source
+    of truth for the manufacturer identity. The FE may still pass
+    ``website`` explicitly; when omitted, the producer URL stored
+    alongside the producer row is used.
+
+    ``variant_hint`` and ``website_hint`` are auto-built the same way as
+    in beans/autofill: an empty string when not provided, an LLM-friendly
     fragment otherwise. This keeps the user-editable prompt template
     free of conditional logic.
     """
@@ -762,15 +769,16 @@ def _make_autofill_handler(table: str):
 
     @websocket_api.websocket_command({
         vol.Required("type"): f"melitta_barista/{table}/autofill",
-        vol.Required("brand"): str,
-        vol.Optional("variant"): str,
-        vol.Optional("website"): str,
-        vol.Optional("agent_id"): str,
+        vol.Required("name"): cv.string,
+        vol.Required("producer_id"): int,
+        vol.Optional("variant"): cv.string,
+        vol.Optional("website"): cv.string,
+        vol.Optional("agent_id"): cv.string,
     })
     @websocket_api.require_admin
     @websocket_api.async_response
     async def _ws_autofill(hass, connection, msg):
-        """LLM-backed enrichment for a syrup / topping from brand+variant.
+        """LLM-backed enrichment for a syrup / topping from name+producer.
 
         Same hybrid path as ``/beans/autofill`` (SmartChain native
         structured output when available, JSON-schema-in-prompt +
@@ -778,17 +786,37 @@ def _make_autofill_handler(table: str):
         ``{raw, parsed, validation_errors, via}`` via
         ``_send_versioned``.
         """
+        db = await _async_get_db(hass)
+        cursor = await db._db.execute(
+            "SELECT name, website FROM producers WHERE id = ?",
+            (msg["producer_id"],),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            connection.send_error(
+                msg["id"],
+                "producer_not_found",
+                f"Producer {msg['producer_id']} not found",
+            )
+            return
+        producer_name = row[0]
+        producer_website = (row[1] or "").strip()
+
         variant = (msg.get("variant") or "").strip()
         variant_hint = f" (variant {variant!r})" if variant else ""
-        website = (msg.get("website") or "").strip()
+        # Prefer the explicit `website` override (front-end may have a
+        # newer / variant-specific URL); fall back to the producer row's
+        # website so the LLM gets a useful link by default.
+        url = (msg.get("website") or "").strip() or producer_website
         website_hint = (
-            f"\n\nProducer page URL: {website}. If you have the ability to "
+            f"\n\nProducer page URL: {url}. If you have the ability to "
             "browse the web, prefer the page content over your training data; "
             "otherwise use it as a hint of what kind of product this is."
-            if website else ""
+            if url else ""
         )
         fmt_vars = {
-            "brand": msg["brand"],
+            "name": msg["name"],
+            "producer": producer_name,
             "variant": variant,
             "variant_hint": variant_hint,
             "website_hint": website_hint,
@@ -1130,24 +1158,25 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "most likely flavour family. Be concise and accurate.{website_hint}"
     ),
     "syrups_autofill": (
-        "You are a flavour expert. Describe the syrup brand {brand!r}"
-        "{variant_hint} for use in coffee drinks: dominant flavor notes, "
-        "the syrup's composition (sweetener type, key ingredients), and a "
-        "set of attribute flags applicable to it (e.g. \"sugar_free\", "
-        "\"vegan\", \"lactose_free\", \"gluten_free\"). NEVER invent facts: "
-        "if you can't determine a field, return an empty list for "
-        "flavor_notes, empty string for composition, or an empty object "
-        "for attributes. Be concise and accurate.{website_hint}"
+        "You are a flavour expert. Describe {name!r} made by producer "
+        "{producer!r}{variant_hint} for use in coffee drinks: dominant "
+        "flavor notes, the syrup's composition (sweetener type, key "
+        "ingredients), and a set of attribute flags applicable to it "
+        "(e.g. \"sugar_free\", \"vegan\", \"lactose_free\", "
+        "\"gluten_free\"). NEVER invent facts: if you can't determine a "
+        "field, return an empty list for flavor_notes, empty string for "
+        "composition, or an empty object for attributes. Be concise and "
+        "accurate.{website_hint}"
     ),
     "toppings_autofill": (
-        "You are a flavour expert. Describe the topping brand {brand!r}"
-        "{variant_hint} for use on coffee drinks: dominant flavor notes, "
-        "the topping's composition (key ingredients, dairy / nut origin), "
-        "and a set of attribute flags applicable to it (e.g. \"vegan\", "
-        "\"lactose_free\", \"gluten_free\", \"nut_free\"). NEVER invent "
-        "facts: if you can't determine a field, return an empty list for "
-        "flavor_notes, empty string for composition, or an empty object "
-        "for attributes. Be concise and accurate.{website_hint}"
+        "You are a flavour expert. Describe {name!r} made by producer "
+        "{producer!r}{variant_hint} for use on coffee drinks: dominant "
+        "flavor notes, the topping's composition (key ingredients, dairy "
+        "/ nut origin), and a set of attribute flags applicable to it "
+        "(e.g. \"vegan\", \"lactose_free\", \"gluten_free\", \"nut_free\"). "
+        "NEVER invent facts: if you can't determine a field, return an "
+        "empty list for flavor_notes, empty string for composition, or "
+        "an empty object for attributes. Be concise and accurate.{website_hint}"
     ),
     "sommelier_intro": (
         "You are an expert barista and coffee sommelier. Generate exactly "
@@ -1172,7 +1201,8 @@ PROMPT_PLACEHOLDERS: dict[str, list[dict[str, str]]] = {
                  "to fetch it (only agents with web-tools can)."},
     ],
     "syrups_autofill": [
-        {"name": "brand", "desc": "Producer / brand (e.g. Monin)"},
+        {"name": "name", "desc": "Product name (e.g. Vanilla, Cinnamon)"},
+        {"name": "producer", "desc": "Producer / brand name (e.g. Monin, Torani)"},
         {"name": "variant_hint",
          "desc": "Auto-built fragment mentioning the variant if set, empty otherwise."},
         {"name": "website_hint",
@@ -1180,7 +1210,8 @@ PROMPT_PLACEHOLDERS: dict[str, list[dict[str, str]]] = {
                  "configured (see beans_autofill)."},
     ],
     "toppings_autofill": [
-        {"name": "brand", "desc": "Producer / brand (e.g. Monin)"},
+        {"name": "name", "desc": "Product name (e.g. Vanilla, Cinnamon)"},
+        {"name": "producer", "desc": "Producer / brand name (e.g. Monin, Torani)"},
         {"name": "variant_hint",
          "desc": "Auto-built fragment mentioning the variant if set, empty otherwise."},
         {"name": "website_hint",

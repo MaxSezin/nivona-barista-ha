@@ -5,12 +5,22 @@
  * Inline tables show the existing entries with edit + delete controls.
  * Milk types use the existing sommelier-side single-list endpoint and only
  * carry a name; syrups and toppings have their own normalised tables and
- * also expose brand / notes plus the P8a-introduced rich fields
- * (producer / variant / flavor_notes / composition / attributes).
+ * expose the P8a-introduced rich fields (producer / variant /
+ * flavor_notes / composition / attributes).
+ *
+ * Modal field order (P12-B — mirrors the beans modal):
+ *   producer dropdown → name → Fill-from-LLM → variant → notes →
+ *   composition → flavor_notes chips → attributes chips.
+ * The standalone Brand text input is gone — the producer dropdown is the
+ * single source of brand identity. `fields.brand` is still populated on
+ * save (from the selected producer's name) so the existing `brand`
+ * column / external consumers keep working without a DB migration.
  *
  * Syrups & toppings additionally support a "Fill from LLM" button that
  * routes to the P8b backend autofill endpoint and merges the parsed
- * response into the editing state.
+ * response into the editing state. The autofill WS payload now carries
+ * `{name, producer_id, variant?, website?}` — the backend resolves the
+ * producer name (and a website fallback) from the producers table.
  */
 
 import { LitElement, html, css } from "../lit-base.js";
@@ -195,21 +205,33 @@ class MelittaAdditives extends LitElement {
 
   async _runAutofill() {
     const e = this._editing;
-    if (!e || !e.brand || !e.brand.trim()) {
-      this._autofillError = this._t("additives.fill_needs_brand");
+    if (!e || e.type === "milk") return;
+    if (!e.name || !e.name.trim() || e.producer_id == null) {
+      this._autofillError = this._t("additives.fill_needs_producer_and_name");
       return;
     }
-    if (e.type === "milk") return;
     const table = e.type === "syrup" ? "syrups" : "toppings";
+    // Resolve producer.website (when present) so the LLM gets an extra
+    // hint. The dropdown is bound to producer.id; we look the row up by
+    // matching numeric id with String() to handle the FE's stringified
+    // <select> value too.
+    const producer = this._producers.find(
+      (p) => String(p.id) === String(e.producer_id),
+    );
+    const website = (producer && producer.website || "").trim();
     this._autofillBusy = true;
     this._autofillError = "";
     try {
       const payload = {
         type: `melitta_barista/${table}/autofill`,
-        brand: e.brand.trim(),
+        name: e.name.trim(),
+        producer_id: Number(e.producer_id),
       };
       if (e.variant && e.variant.trim()) {
         payload.variant = e.variant.trim();
+      }
+      if (website) {
+        payload.website = website;
       }
       const result = await this.hass.callWS(payload);
       const parsed = result && result.parsed;
@@ -265,10 +287,19 @@ class MelittaAdditives extends LitElement {
         });
       } else {
         const table = e.type === "syrup" ? "syrups" : "toppings";
+        // Resolve the selected producer once so we can mirror its name
+        // into the legacy `brand` column (keeps existing queries / external
+        // consumers working without a DB migration).
+        const producer =
+          e.producer_id != null && e.producer_id !== ""
+            ? this._producers.find(
+                (p) => String(p.id) === String(e.producer_id),
+              )
+            : null;
         // Coerce DB NULLs to "" — voluptuous Optional(...): str rejects None.
         const fields = {
           name: e.name,
-          brand: e.brand || "",
+          brand: producer ? (producer.name || "") : "",
           notes: e.notes || "",
         };
         // Send rich fields only when set so partial-patch semantics on
@@ -395,39 +426,22 @@ class MelittaAdditives extends LitElement {
     const attrs = e.attributes || {};
     const notes = e.flavor_notes || [];
     return html`
-      <button
-        class="fill-llm-button"
-        ?disabled=${this._autofillBusy || !e.brand || !e.brand.trim()}
-        @click=${() => this._runAutofill()}
-        title=${(!e.brand || !e.brand.trim()) ? this._t("additives.fill_needs_brand") : ""}
-      >
-        ${this._autofillBusy ? "…" : "✨"} ${this._t("additives.fill_from_llm")}
-      </button>
-      ${this._autofillError ? html`
-        <div class="autofill-error">${this._autofillError}</div>
-      ` : ""}
-
-      <label>${this._t("additives.producer")}
-        <select
-          .value=${e.producer_id == null ? "" : String(e.producer_id)}
-          @change=${(ev) => {
-            const v = ev.target.value;
-            this._updateField("producer_id", v === "" ? null : Number(v));
-          }}>
-          <option value="" ?selected=${e.producer_id == null}>
-            ${this._t("additives.producer_none")}
-          </option>
-          ${this._producers.map((p) => html`
-            <option value=${p.id} ?selected=${String(p.id) === String(e.producer_id)}>
-              ${p.name}
-            </option>
-          `)}
-        </select>
-      </label>
-
       <label>${this._t("additives.variant")}
         <input type="text" .value=${e.variant || ""}
           @input=${(ev) => this._updateField("variant", ev.target.value)} />
+      </label>
+
+      <label>${this._t("additives.notes")}
+        <textarea rows="3"
+          @input=${(ev) => this._updateField("notes", ev.target.value)}
+        >${e.notes || ""}</textarea>
+      </label>
+
+      <label>${this._t("additives.composition")}
+        <textarea rows="3"
+          .value=${e.composition || ""}
+          @input=${(ev) => this._updateField("composition", ev.target.value)}
+        >${e.composition || ""}</textarea>
       </label>
 
       <fieldset class="rich-group">
@@ -453,13 +467,6 @@ class MelittaAdditives extends LitElement {
         </div>
       </fieldset>
 
-      <label>${this._t("additives.composition")}
-        <textarea rows="3"
-          .value=${e.composition || ""}
-          @input=${(ev) => this._updateField("composition", ev.target.value)}
-        >${e.composition || ""}</textarea>
-      </label>
-
       <fieldset class="rich-group">
         <legend>${this._t("additives.attributes")}</legend>
         <div class="chip-row">
@@ -479,7 +486,11 @@ class MelittaAdditives extends LitElement {
     if (!this._editing) return "";
     const e = this._editing;
     const titleKey = e.id ? "modal.edit_additive" : "modal.add_additive";
-    const showsBrand = e.type !== "milk";
+    const isRich = e.type !== "milk";
+    const canAutofill =
+      isRich
+      && !!e.name && !!e.name.trim()
+      && e.producer_id != null && e.producer_id !== "";
     return html`
       <melitta-modal .open=${true} .title=${this._t(titleKey)}
         @close=${() => this._closeModal()}>
@@ -494,19 +505,44 @@ class MelittaAdditives extends LitElement {
               `)}
             </select>
           </label>
-          <label>${this._t("additives.name")}
-            <input type="text" .value=${e.name}
-              @input=${(ev) => this._updateField("name", ev.target.value)} /></label>
-          ${showsBrand ? html`
-            <label>${this._t("additives.brand")}
-              <input type="text" .value=${e.brand || ""}
-                @input=${(ev) => this._updateField("brand", ev.target.value)} /></label>
-            <label>${this._t("additives.notes")}
-              <textarea rows="3"
-                @input=${(ev) => this._updateField("notes", ev.target.value)}
-              >${e.notes || ""}</textarea></label>
+          ${isRich ? html`
+            <label>${this._t("additives.producer")}
+              <select
+                .value=${e.producer_id == null ? "" : String(e.producer_id)}
+                @change=${(ev) => {
+                  const v = ev.target.value;
+                  this._updateField("producer_id", v === "" ? null : Number(v));
+                }}>
+                <option value="" ?selected=${e.producer_id == null}>
+                  ${this._t("additives.producer_none")}
+                </option>
+                ${this._producers.map((p) => html`
+                  <option value=${p.id} ?selected=${String(p.id) === String(e.producer_id)}>
+                    ${p.name}
+                  </option>
+                `)}
+              </select>
+            </label>
+            <label>${this._t("additives.name")}
+              <input type="text" .value=${e.name}
+                @input=${(ev) => this._updateField("name", ev.target.value)} /></label>
+            <button
+              class="fill-llm-button"
+              ?disabled=${this._autofillBusy || !canAutofill}
+              @click=${() => this._runAutofill()}
+              title=${!canAutofill ? this._t("additives.fill_needs_producer_and_name") : ""}
+            >
+              ${this._autofillBusy ? "…" : "✨"} ${this._t("additives.fill_from_llm")}
+            </button>
+            ${this._autofillError ? html`
+              <div class="autofill-error">${this._autofillError}</div>
+            ` : ""}
             ${this._renderRichFields(e)}
-          ` : ""}
+          ` : html`
+            <label>${this._t("additives.name")}
+              <input type="text" .value=${e.name}
+                @input=${(ev) => this._updateField("name", ev.target.value)} /></label>
+          `}
           <div class="form-actions">
             <button class="ghost" @click=${() => this._closeModal()}>${this._t("common.cancel")}</button>
             <button class="primary" @click=${() => this._save()}>${this._t("common.save")}</button>

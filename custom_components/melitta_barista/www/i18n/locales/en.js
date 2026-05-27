@@ -146,7 +146,7 @@ export default {
   "additives.attr.nut_free": "Nut-free",
   "additives.fill_from_llm": "Fill from LLM",
   "additives.fill_failed": "LLM autofill failed.",
-  "additives.fill_needs_brand": "Set the brand first to use Fill from LLM.",
+  "additives.fill_needs_producer_and_name": "Select a producer and enter a name to use Fill from LLM.",
 
   "producers.title": "Producers",
   "producers.add": "Add",
