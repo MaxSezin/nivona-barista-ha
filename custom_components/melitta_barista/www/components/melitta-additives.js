@@ -106,12 +106,18 @@ class MelittaAdditives extends LitElement {
       const [s, tp, m, p] = await Promise.all([
         this.hass.callWS({ type: "melitta_barista/syrups/list" }),
         this.hass.callWS({ type: "melitta_barista/toppings/list" }),
-        this.hass.callWS({ type: "melitta_barista/sommelier/milk/get" }),
+        this.hass.callWS({ type: "melitta_barista/sommelier/milk/list_full" }),
         this.hass.callWS({ type: "melitta_barista/producers/list" }).catch(() => ({ producers: [] })),
       ]);
       this._syrups = s.syrups || [];
       this._toppings = tp.toppings || [];
-      this._milk = (m.milk_types || []).map((name, idx) => ({ id: name, name }));
+      // milk rows carry an `available` flag now (P12-C). The id is the
+      // milk_type string itself — it's the natural primary key.
+      this._milk = (m.milks || []).map((row) => ({
+        id: row.milk_type,
+        name: row.milk_type,
+        available: row.available !== false,
+      }));
       this._producers = p.producers || [];
       this._error = "";
     } catch (e) {
@@ -337,16 +343,22 @@ class MelittaAdditives extends LitElement {
   }
 
   async _toggleAvailable(type, item) {
-    // milk rows are a flat string list — no per-item stock flag in P4a.
-    if (type === "milk") return;
-    const table = type === "syrup" ? "syrups" : "toppings";
     const next = !(item.available ?? 1);
     try {
-      await this.hass.callWS({
-        type: `melitta_barista/${table}/set_available`,
-        additive_id: item.id,
-        available: next,
-      });
+      if (type === "milk") {
+        await this.hass.callWS({
+          type: "melitta_barista/sommelier/milk/set_available",
+          milk_type: item.name,
+          available: next,
+        });
+      } else {
+        const table = type === "syrup" ? "syrups" : "toppings";
+        await this.hass.callWS({
+          type: `melitta_barista/${table}/set_available`,
+          additive_id: item.id,
+          available: next,
+        });
+      }
       this._error = "";
       await this._loadAll();
     } catch (err) {
@@ -397,21 +409,21 @@ class MelittaAdditives extends LitElement {
         <tbody>
           ${rows.map((r) => {
             const inStock = (r.available ?? 1) ? true : false;
-            const rowClass = type !== "milk" && !inStock ? "dimmed" : "";
+            const rowClass = !inStock ? "dimmed" : "";
             return html`
             <tr class=${rowClass}>
               <td>${r.name}</td>
               ${showsBrand ? html`<td>${r.brand || ""}</td>` : ""}
               ${showsBrand ? html`<td>${r.notes || ""}</td>` : ""}
               <td class="actions">
-                ${type !== "milk" ? html`
-                  <button
-                    class="icon stock ${inStock ? "in-stock" : "out-of-stock"}"
-                    title=${inStock ? this._t("additives.in_stock") : this._t("additives.out_of_stock")}
-                    @click=${() => this._toggleAvailable(type, r)}
-                  >${inStock ? "✓" : "○"}</button>
-                ` : ""}
-                <button class="icon edit" @click=${() => this._openEdit(type, r)}>✎</button>
+                <button
+                  class="icon stock ${inStock ? "in-stock" : "out-of-stock"}"
+                  title=${inStock ? this._t("additives.in_stock") : this._t("additives.out_of_stock")}
+                  @click=${() => this._toggleAvailable(type, r)}
+                >${inStock ? "✓" : "○"}</button>
+                ${type !== "milk"
+                  ? html`<button class="icon edit" @click=${() => this._openEdit(type, r)}>✎</button>`
+                  : ""}
                 <button class="icon del" @click=${() => this._delete(type, r.id)}>×</button>
               </td>
             </tr>

@@ -204,6 +204,8 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_capabilities_get)
     websocket_api.async_register_command(hass, ws_milk_get)
     websocket_api.async_register_command(hass, ws_milk_set)
+    websocket_api.async_register_command(hass, ws_milk_list_full)
+    websocket_api.async_register_command(hass, ws_milk_set_available)
     websocket_api.async_register_command(hass, ws_generate)
     websocket_api.async_register_command(hass, ws_brew)
     websocket_api.async_register_command(hass, ws_favorites_list)
@@ -506,6 +508,47 @@ async def ws_milk_set(
     db = await _async_get_db(hass)
     await db.async_set_milk(msg["milk_types"])
     _send_versioned(connection, msg["id"], {})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "melitta_barista/sommelier/milk/list_full"}
+)
+@websocket_api.async_response
+async def ws_milk_list_full(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """List every configured milk with its availability flag.
+
+    Used by the Additives panel which needs to surface the per-row
+    in-stock / out-of-stock toggle. Sommelier's chip picker keeps
+    using `/milk/get` so out-of-stock milks stay hidden from
+    generation context.
+    """
+    db = await _async_get_db(hass)
+    rows = await db.async_list_milk_full()
+    _send_versioned(connection, msg["id"], {"milks": rows})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "melitta_barista/sommelier/milk/set_available",
+        vol.Required("milk_type"): cv.string,
+        vol.Required("available"): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_milk_set_available(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Toggle a single milk type's availability flag."""
+    db = await _async_get_db(hass)
+    await db.async_set_milk_available(msg["milk_type"], bool(msg["available"]))
+    _send_versioned(connection, msg["id"], {"updated": True})
 
 
 # ── Generate ──────────────────────────────────────────────────────────

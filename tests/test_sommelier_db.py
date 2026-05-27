@@ -302,6 +302,39 @@ class TestMilkConfig:
         await db.async_set_milk([])
         assert await db.async_get_milk() == []
 
+    async def test_set_milk_preserves_available_for_surviving_rows(self, db: SommelierDB):
+        """P12-C: bulk-save no longer resurrects toggled-off rows."""
+        await db.async_set_milk(["whole", "oat"])
+        # User toggles whole off.
+        await db.async_set_milk_available("whole", False)
+        # Bulk save fires again (e.g. user adds "almond" via the form).
+        await db.async_set_milk(["whole", "oat", "almond"])
+        # whole stays out-of-stock, oat stays in, almond is freshly added.
+        full = {row["milk_type"]: row["available"] for row in await db.async_list_milk_full()}
+        assert full == {"whole": False, "oat": True, "almond": True}
+        # Sommelier-facing /get hides whole because available=False.
+        assert sorted(await db.async_get_milk()) == ["almond", "oat"]
+
+    async def test_set_milk_available_upsert(self, db: SommelierDB):
+        """async_set_milk_available toggles a single row, inserting if missing."""
+        # Insert via toggle on a brand-new row.
+        await db.async_set_milk_available("oat", True)
+        # Flip it off.
+        await db.async_set_milk_available("oat", False)
+        rows = await db.async_list_milk_full()
+        assert rows == [{"milk_type": "oat", "available": False}]
+        assert await db.async_get_milk() == []
+
+    async def test_list_milk_full_returns_all_rows_with_flag(self, db: SommelierDB):
+        """list_full mirrors the underlying table 1:1 (in-stock + out-of-stock)."""
+        await db.async_set_milk(["whole", "oat"])
+        await db.async_set_milk_available("whole", False)
+        rows = await db.async_list_milk_full()
+        assert sorted(rows, key=lambda r: r["milk_type"]) == [
+            {"milk_type": "oat", "available": True},
+            {"milk_type": "whole", "available": False},
+        ]
+
 
 # ── Generation Sessions & Recipes ────────────────────────────────────
 

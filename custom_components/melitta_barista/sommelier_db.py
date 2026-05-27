@@ -656,21 +656,66 @@ class SommelierDB:
     # ── Milk Config ───────────────────────────────────────────────────
 
     async def async_get_milk(self) -> list[str]:
-        """Get list of available milk types."""
+        """Get list of currently in-stock milk types (out-of-stock filtered out)."""
         cursor = await self.db.execute(
             "SELECT milk_type FROM milk_config WHERE available = 1 ORDER BY milk_type"
         )
         rows = await cursor.fetchall()
         return [row["milk_type"] for row in rows]
 
+    async def async_list_milk_full(self) -> list[dict[str, Any]]:
+        """Get all configured milk types with their availability flag.
+
+        Used by the Additives panel which surfaces the per-row toggle.
+        Sommelier's chip picker keeps using `async_get_milk()` so
+        out-of-stock milks stay hidden from the LLM context.
+        """
+        cursor = await self.db.execute(
+            "SELECT milk_type, available FROM milk_config ORDER BY milk_type"
+        )
+        rows = await cursor.fetchall()
+        return [
+            {"milk_type": row["milk_type"], "available": bool(row["available"])}
+            for row in rows
+        ]
+
     async def async_set_milk(self, milk_types: list[str]) -> None:
-        """Set available milk types (replaces existing)."""
-        await self.db.execute("DELETE FROM milk_config")
+        """Set the configured milk types — preserves `available` for surviving rows.
+
+        Previously this method DELETE'd everything and re-INSERT'd with
+        `available=1`, which resurrected milks the user had toggled off
+        any time the bulk-save flow ran. The new behavior is closer to a
+        UPSERT-with-prune: INSERT OR IGNORE for new rows (default
+        available=1), DELETE rows not in the new list, leave the rest
+        untouched.
+        """
+        # New rows default to available=1; pre-existing rows keep their flag.
         for mt in milk_types:
             await self.db.execute(
-                "INSERT INTO milk_config (milk_type, available) VALUES (?, 1)",
+                "INSERT OR IGNORE INTO milk_config (milk_type, available) "
+                "VALUES (?, 1)",
                 (mt,),
             )
+        # Prune rows not in the new list. Use a parameterised IN clause via a
+        # placeholder list of the right length (empty list → DELETE everything).
+        if milk_types:
+            placeholders = ",".join("?" * len(milk_types))
+            await self.db.execute(
+                f"DELETE FROM milk_config WHERE milk_type NOT IN ({placeholders})",  # nosec B608
+                tuple(milk_types),
+            )
+        else:
+            await self.db.execute("DELETE FROM milk_config")
+        await self.db.commit()
+
+    async def async_set_milk_available(self, milk_type: str, available: bool) -> None:
+        """Toggle a single milk's availability flag (upsert)."""
+        flag = 1 if available else 0
+        await self.db.execute(
+            "INSERT INTO milk_config (milk_type, available) VALUES (?, ?) "
+            "ON CONFLICT(milk_type) DO UPDATE SET available = excluded.available",
+            (milk_type, flag),
+        )
         await self.db.commit()
 
     # ── Generation Sessions & Recipes ─────────────────────────────────
