@@ -20,6 +20,7 @@ await Promise.all([
   import(`./components/melitta-recipes.js${_q}`),
   import(`./components/melitta-beans.js${_q}`),
   import(`./components/melitta-additives.js${_q}`),
+  import(`./components/melitta-producers.js${_q}`),
   import(`./components/melitta-sommelier.js${_q}`),
   import(`./components/melitta-sommelier-favorites.js${_q}`),
   import(`./components/melitta-sommelier-history.js${_q}`),
@@ -34,7 +35,7 @@ import { LitElement, html, css } from "./lit-base.js";
 import { t } from "./i18n/index.js";
 
 const TAB_IDS = [
-  "sommelier", "beans", "additives", "system",
+  "sommelier", "beans", "additives", "producers", "system",
 ];
 
 class MelittaPanel extends LitElement {
@@ -136,6 +137,8 @@ class MelittaPanel extends LitElement {
         return html`<melitta-beans .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-beans>`;
       case "additives":
         return html`<melitta-additives .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-additives>`;
+      case "producers":
+        return html`<melitta-producers .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-producers>`;
       case "system":
         return html`<melitta-system .hass=${props.hass} .entryId=${props.entryId} .lang=${props.lang}></melitta-system>`;
       default:

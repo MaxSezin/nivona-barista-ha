@@ -272,23 +272,26 @@ class TestSafeHttpUrlContract:
     def test_safe_http_url_helper_exists(self):
         from pathlib import Path
 
-        beans_js = (
+        # Producer CRUD (and the website link) moved out of the Beans tab
+        # into its own <melitta-producers> component in P12a; the safety
+        # contract follows the helper to that file.
+        producers_js = (
             Path(__file__).parent.parent
             / "custom_components"
             / "melitta_barista"
             / "www"
             / "components"
-            / "melitta-beans.js"
+            / "melitta-producers.js"
         ).read_text()
 
-        assert "function safeHttpUrl" in beans_js
+        assert "function safeHttpUrl" in producers_js
         # Allowlist must check http(s); deny by default if the URL parser
         # raises or returns a different scheme.
-        assert 'parsed.protocol === "http:"' in beans_js
-        assert 'parsed.protocol === "https:"' in beans_js
+        assert 'parsed.protocol === "http:"' in producers_js
+        assert 'parsed.protocol === "https:"' in producers_js
         # Producer link must go through the helper, with rel=noopener.
-        assert "safeHttpUrl(p.website)" in beans_js
-        assert 'rel="noopener noreferrer"' in beans_js
+        assert "safeHttpUrl(p.website)" in producers_js
+        assert 'rel="noopener noreferrer"' in producers_js
 
 
 # ── #C4: services removed on unload ───────────────────────────────────

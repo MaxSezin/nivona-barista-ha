@@ -1,10 +1,11 @@
 /**
- * Coffee producers + beans manager.
+ * Coffee beans manager.
  *
- * - Producers: dropdown-source for the bean form. CRUD via modal.
  * - Beans: CRUD via modal. Producer is a `<select>` populated from
- *   `_producers`; flavor notes are dynamic chips backed by the
- *   `melitta_barista/tags/*` endpoints (any new typed value is upserted).
+ *   `_producers` (loaded for the dropdown only — producer CRUD lives in
+ *   the dedicated <melitta-producers> tab now); flavor notes are dynamic
+ *   chips backed by the `melitta_barista/tags/*` endpoints (any new typed
+ *   value is upserted).
  * - Hopper assignment: per-machine bean → hopper widget using the existing
  *   sommelier hopper endpoints; users can mark which bean is currently
  *   loaded into each grinder slot.
@@ -19,21 +20,6 @@ import "./melitta-confirm.js";
 
 const ROASTS = ["light", "medium", "medium_dark", "dark"];
 const BEAN_TYPES = ["arabica", "arabica_robusta", "robusta"];
-
-/**
- * Return the input URL only if it parses as an http(s) URL.
- * Blocks `javascript:`, `data:`, and other XSS-capable schemes from
- * reaching an `<a href>` rendered with user-stored data.
- */
-function safeHttpUrl(url) {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    return (parsed.protocol === "http:" || parsed.protocol === "https:") ? url : null;
-  } catch {
-    return null;
-  }
-}
 const ORIGINS = ["single_origin", "blend"];
 
 class MelittaBeans extends LitElement {
@@ -47,7 +33,6 @@ class MelittaBeans extends LitElement {
       _allTags: { type: Array },
       _hoppers: { type: Object },
       _editingBean: { type: Object },
-      _editingProducer: { type: Object },
       _autofillRunning: { type: Boolean },
       _autofillRaw: { type: String },
       _autofillVia: { type: String },
@@ -65,7 +50,6 @@ class MelittaBeans extends LitElement {
     this._allTags = [];
     this._hoppers = { hopper1: null, hopper2: null };
     this._editingBean = null;
-    this._editingProducer = null;
     this._autofillRunning = false;
     this._autofillRaw = "";
     this._autofillVia = "";
@@ -120,10 +104,6 @@ class MelittaBeans extends LitElement {
     };
   }
 
-  _emptyProducer() {
-    return { id: null, name: "", country: "", website: "", notes: "" };
-  }
-
   connectedCallback() {
     super.connectedCallback();
     this._loadAll();
@@ -146,57 +126,6 @@ class MelittaBeans extends LitElement {
       this._allTags = tags.tags || [];
       this._hoppers = hoppers || { hopper1: null, hopper2: null };
       this._error = "";
-    } catch (e) {
-      this._error = e.message || String(e);
-    }
-  }
-
-  // ── producers ──
-
-  _openAddProducer() { this._editingProducer = this._emptyProducer(); }
-  _openEditProducer(p) { this._editingProducer = { ...p }; }
-  _closeProducerModal() { this._editingProducer = null; }
-
-  async _saveProducer() {
-    const p = this._editingProducer;
-    if (!p?.name?.trim()) return;
-    try {
-      // voluptuous Optional(...): str rejects None — coerce DB NULLs
-      // (which become null in the WS payload) to "" before sending.
-      const fields = {
-        name: p.name,
-        country: p.country || "",
-        website: p.website || "",
-        notes: p.notes || "",
-      };
-      if (p.id) {
-        await this.hass.callWS({
-          type: "melitta_barista/producers/update",
-          producer_id: p.id,
-          ...fields,
-        });
-      } else {
-        await this.hass.callWS({
-          type: "melitta_barista/producers/add",
-          ...fields,
-        });
-      }
-      this._closeProducerModal();
-      await this._loadAll();
-    } catch (e) {
-      this._error = e.message || String(e);
-    }
-  }
-
-  async _deleteProducer(id) {
-    const producer = this._producers.find((p) => p.id === id);
-    if (!(await this._confirmDelete(producer?.name || null))) return;
-    try {
-      await this.hass.callWS({
-        type: "melitta_barista/producers/delete",
-        producer_id: id,
-      });
-      await this._loadAll();
     } catch (e) {
       this._error = e.message || String(e);
     }
@@ -436,38 +365,6 @@ class MelittaBeans extends LitElement {
 
   // ── render ──
 
-  _renderProducersTable() {
-    if (this._producers.length === 0) {
-      return html`<div class="hint">${this._t("beans.no_producers")}</div>`;
-    }
-    return html`
-      <table>
-        <thead><tr>
-          <th>${this._t("beans.producer_name")}</th>
-          <th>${this._t("beans.origin")}</th>
-          <th></th>
-        </tr></thead>
-        <tbody>
-          ${this._producers.map((p) => html`
-            <tr>
-              <td>${p.name}</td>
-              <td>${p.country || ""}${(() => {
-                const safe = safeHttpUrl(p.website);
-                return safe
-                  ? html` · <a href=${safe} target="_blank" rel="noopener noreferrer">site</a>`
-                  : "";
-              })()}</td>
-              <td class="actions">
-                <button class="icon edit" @click=${() => this._openEditProducer(p)}>✎</button>
-                <button class="icon del" @click=${() => this._deleteProducer(p.id)}>×</button>
-              </td>
-            </tr>
-          `)}
-        </tbody>
-      </table>
-    `;
-  }
-
   _renderBeansTable() {
     if (this._beans.length === 0) {
       return html`<div class="hint">${this._t("beans.no_beans")}</div>`;
@@ -501,36 +398,6 @@ class MelittaBeans extends LitElement {
     `;
   }
 
-  _renderProducerModal() {
-    if (!this._editingProducer) return "";
-    const p = this._editingProducer;
-    const titleKey = p.id ? "modal.edit_producer" : "modal.add_producer";
-    return html`
-      <melitta-modal .open=${true} .title=${this._t(titleKey)}
-        @close=${() => this._closeProducerModal()}>
-        <div class="form">
-          <label>${this._t("beans.producer_name")}
-            <input type="text" .value=${p.name}
-              @input=${(e) => { this._editingProducer = { ...p, name: e.target.value }; }} /></label>
-          <label>${this._t("beans.origin")}
-            <input type="text" .value=${p.country}
-              @input=${(e) => { this._editingProducer = { ...p, country: e.target.value }; }} /></label>
-          <label>website
-            <input type="text" .value=${p.website}
-              @input=${(e) => { this._editingProducer = { ...p, website: e.target.value }; }} /></label>
-          <label>${this._t("beans.notes")}
-            <textarea rows="3"
-              @input=${(e) => { this._editingProducer = { ...p, notes: e.target.value }; }}
-            >${p.notes || ""}</textarea></label>
-          <div class="form-actions">
-            <button class="ghost" @click=${() => this._closeProducerModal()}>${this._t("common.cancel")}</button>
-            <button class="primary" @click=${() => this._saveProducer()}>${this._t("common.save")}</button>
-          </div>
-        </div>
-      </melitta-modal>
-    `;
-  }
-
   _renderBeanModal() {
     if (!this._editingBean) return "";
     const b = this._editingBean;
@@ -547,6 +414,9 @@ class MelittaBeans extends LitElement {
                 <option value=${p.name} ?selected=${p.name === b.brand}>${p.name}</option>
               `)}
             </select>
+            ${this._producers.length === 0
+              ? html`<small class="hint">${this._t("beans.no_producers_go_to_tab")}</small>`
+              : ""}
           </label>
           <label>${this._t("beans.bean_name")}
             <input type="text" .value=${b.product}
@@ -650,14 +520,6 @@ class MelittaBeans extends LitElement {
         ${this._error ? html`<div class="error">${this._t("common.error")}: ${this._error}</div>` : ""}
 
         <div class="section-head">
-          <h3>${this._t("beans.producers")}</h3>
-          <button class="primary small" @click=${() => this._openAddProducer()}>
-            + ${this._t("beans.add_producer")}
-          </button>
-        </div>
-        ${this._renderProducersTable()}
-
-        <div class="section-head">
           <h3>${this._t("beans.beans")}</h3>
           <button class="primary small" @click=${() => this._openAddBean()}>
             + ${this._t("beans.add_bean")}
@@ -673,7 +535,6 @@ class MelittaBeans extends LitElement {
           ${this._renderHopperRow(this._t("hopper.right"), 2, this._hoppers.hopper2)}
         </div>
 
-        ${this._renderProducerModal()}
         ${this._renderBeanModal()}
       </section>
     `;
