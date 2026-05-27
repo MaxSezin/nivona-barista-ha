@@ -320,11 +320,18 @@ class MelittaSommelier extends LitElement {
       // Out-of-stock items are hidden from the chip picker. The
       // catalogue `available` flag is patched via melitta-additives.js;
       // ws_generate enforces the same filter on the backend.
+      //
+      // Gotcha: the backend serializes `available` as JSON `true` /
+      // `false` (Python bool). We can't write `(s.available ?? 1) !== 0`
+      // here — `false ?? 1` evaluates to `false` because nullish-coalescing
+      // only catches `undefined` / `null`, and `false !== 0` is `true`,
+      // so out-of-stock items would pass the filter. Strict !== false
+      // excludes `false` and keeps `true` / `undefined` / missing.
       this._availableSyrups = (syrups.syrups || [])
-        .filter((s) => (s.available ?? 1) !== 0)
+        .filter((s) => s.available !== false)
         .map((s) => s.name);
       this._availableToppings = (toppings.toppings || [])
-        .filter((t) => (t.available ?? 1) !== 0)
+        .filter((t) => t.available !== false)
         .map((t) => t.name);
       this._availableMilk = milk.milk_types || [];
       // Default: select everything available so the user has to opt OUT
