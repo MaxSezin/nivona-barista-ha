@@ -156,6 +156,43 @@ The repo ships a ready-to-flash ESPHome config at
 **Seeed XIAO ESP32-C6** (the maintainer's reference board). Any ESP32 / S3 /
 C3 / C6 with stock `bluetooth_proxy` works the same way.
 
+### Running HA in a Docker container? Three host-side prerequisites
+
+If you run **Home Assistant Container** (Docker) and want to use the host's
+local Bluetooth adapter (not an ESPHome proxy), three prerequisites are
+often missed and surface as confusing `HU handshake timeout` /
+`Authentication failed` errors:
+
+1. **Install `bluez` on the host** (the full daemon, not just `bluez-obexd`):
+   ```bash
+   sudo apt update && sudo apt install -y bluez
+   sudo systemctl enable --now bluetooth
+   ```
+   Without `bluetoothd` running on the host, GATT pairing never completes.
+
+2. **Mount the D-Bus socket into the container.** Add to `docker run` or
+   `docker-compose.yml`:
+   ```yaml
+   volumes:
+     - /run/dbus:/run/dbus:ro
+   ```
+
+3. **Use `--privileged` or grant `NET_ADMIN` capability**, and run with
+   `--net=host`. These match HA's expected discovery behaviour and let the
+   integration scan + connect over the host BLE stack.
+
+If a previously-attempted machine is stuck, reset its BlueZ cache from the
+host:
+```bash
+bluetoothctl disconnect <MAC>
+bluetoothctl remove <MAC>
+# then put the machine in pair mode and re-add the integration
+```
+
+Verified working: NICR 779 on Mac mini (Apple Broadcom BCM2046B1) /
+Ubuntu 24.04 / BlueZ 5.72 / HA Container — see [`HCL.md`](HCL.md) for the
+full hardware list.
+
 ---
 
 ## Requirements
