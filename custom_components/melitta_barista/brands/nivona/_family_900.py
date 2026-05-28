@@ -196,3 +196,23 @@ CAPABILITIES_900_LIGHT = MachineCapabilities(
     settings=SETTINGS_900_LIGHT,
     stats=STATS_900_LIGHT,
 )
+
+
+EXPORTS: dict[str, dict] = {
+    "900": {
+        "recipes": RECIPES_900,
+        "settings": SETTINGS_900,
+        "stats": STATS_900,
+        "standard_layout": STANDARD_LAYOUT_900,
+        "mycoffee_layout": MYCOFFEE_LAYOUT_900,
+        "capabilities": CAPABILITIES_900,
+    },
+    "900-light": {
+        "recipes": RECIPES_900_LIGHT,
+        "settings": SETTINGS_900_LIGHT,
+        "stats": STATS_900_LIGHT,
+        "standard_layout": STANDARD_LAYOUT_900_LIGHT,
+        "mycoffee_layout": MYCOFFEE_LAYOUT_900_LIGHT,
+        "capabilities": CAPABILITIES_900_LIGHT,
+    },
+}

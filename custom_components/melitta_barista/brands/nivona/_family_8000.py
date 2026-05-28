@@ -132,3 +132,15 @@ CAPABILITIES_8000 = MachineCapabilities(
     settings=SETTINGS_8000,
     stats=STATS_8000,
 )
+
+
+EXPORTS: dict[str, dict] = {
+    "8000": {
+        "recipes": RECIPES_8000,
+        "settings": SETTINGS_8000,
+        "stats": STATS_8000,
+        "standard_layout": STANDARD_LAYOUT_8000,
+        "mycoffee_layout": MYCOFFEE_LAYOUT_8000,
+        "capabilities": CAPABILITIES_8000,
+    },
+}

@@ -226,3 +226,23 @@ CAPABILITIES_1040 = MachineCapabilities(
     settings=SETTINGS_1040,
     stats=STATS_1040,
 )
+
+
+EXPORTS: dict[str, dict] = {
+    "1030": {
+        "recipes": RECIPES_1030,
+        "settings": SETTINGS_1030,
+        "stats": STATS_1030,
+        "standard_layout": STANDARD_LAYOUT_1030,
+        "mycoffee_layout": MYCOFFEE_LAYOUT_1030,
+        "capabilities": CAPABILITIES_1030,
+    },
+    "1040": {
+        "recipes": RECIPES_1040,
+        "settings": SETTINGS_1040,
+        "stats": STATS_1040,
+        "standard_layout": STANDARD_LAYOUT_1040,
+        "mycoffee_layout": MYCOFFEE_LAYOUT_1040,
+        "capabilities": CAPABILITIES_1040,
+    },
+}

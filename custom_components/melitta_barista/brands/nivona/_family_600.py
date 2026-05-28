@@ -99,3 +99,19 @@ CAPABILITIES = MachineCapabilities(
     settings=SETTINGS,
     stats=STATS,
 )
+
+
+# Aggregated view consumed by the package-level dispatch loop in
+# ``nivona/__init__.py``. Each family key maps to the 6-tuple of
+# (recipes, settings, stats, standard_layout, mycoffee_layout,
+# capabilities) used to build the dispatch dicts.
+EXPORTS: dict[str, dict] = {
+    "600": {
+        "recipes": RECIPES,
+        "settings": SETTINGS,
+        "stats": STATS,
+        "standard_layout": STANDARD_LAYOUT,
+        "mycoffee_layout": MYCOFFEE_LAYOUT,
+        "capabilities": CAPABILITIES,
+    },
+}

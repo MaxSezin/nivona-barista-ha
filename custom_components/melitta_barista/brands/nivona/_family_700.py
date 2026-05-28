@@ -161,3 +161,23 @@ CAPABILITIES_79X = MachineCapabilities(
     settings=SETTINGS_79X,
     stats=STATS_79X,
 )
+
+
+EXPORTS: dict[str, dict] = {
+    "700": {
+        "recipes": RECIPES_700,
+        "settings": SETTINGS_700,
+        "stats": STATS_700,
+        "standard_layout": STANDARD_LAYOUT_700,
+        "mycoffee_layout": MYCOFFEE_LAYOUT_700,
+        "capabilities": CAPABILITIES_700,
+    },
+    "79x": {
+        "recipes": RECIPES_79X,
+        "settings": SETTINGS_79X,
+        "stats": STATS_79X,
+        "standard_layout": STANDARD_LAYOUT_79X,
+        "mycoffee_layout": MYCOFFEE_LAYOUT_79X,
+        "capabilities": CAPABILITIES_79X,
+    },
+}

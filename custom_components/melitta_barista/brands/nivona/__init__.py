@@ -23,13 +23,7 @@ from typing import ClassVar
 
 from dataclasses import replace
 
-from ..base import (
-    MachineCapabilities,
-    RecipeDescriptor,
-    RecipeFieldLayout,
-    SettingDescriptor,
-    StatDescriptor,
-)
+from ..base import MachineCapabilities, RecipeFieldLayout
 from ._crypto import _NIVONA_HU_TABLE, _NIVONA_RC4_KEY
 from ._prefixes import (
     _MODEL_OVERRIDES,
@@ -56,106 +50,41 @@ from . import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Per-family recipe tables — selector byte → (key, display name).
-# Per-family standard-recipe lists. Each entry is (selector, key, title).
-# ---------------------------------------------------------------------------
-
-_RECIPES_600: tuple[RecipeDescriptor, ...] = _family_600.RECIPES
-
-_RECIPES_700: tuple[RecipeDescriptor, ...] = _family_700.RECIPES_700
-_RECIPES_79X: tuple[RecipeDescriptor, ...] = _family_700.RECIPES_79X
-_RECIPES_900: tuple[RecipeDescriptor, ...] = _family_900.RECIPES_900
-_RECIPES_900_LIGHT: tuple[RecipeDescriptor, ...] = _family_900.RECIPES_900_LIGHT
-_RECIPES_1030: tuple[RecipeDescriptor, ...] = _family_1030.RECIPES_1030
-_RECIPES_1040: tuple[RecipeDescriptor, ...] = _family_1030.RECIPES_1040
-_RECIPES_8000: tuple[RecipeDescriptor, ...] = _family_8000.RECIPES_8000
-_RECIPES_8000_CHILLED: tuple[RecipeDescriptor, ...] = _family_8000.RECIPES_8000_CHILLED
-_CHILLED_SELECTORS: frozenset[int] = _family_8000.CHILLED_SELECTORS
-
 _LOGGER = logging.getLogger("melitta_barista")
 
 
 # ---------------------------------------------------------------------------
-# Family capabilities — 7 Nivona families covered by the upstream RE.
+# Family dispatch — assembled by merging each family module's EXPORTS.
 #
-# Notes on per-family flags:
+# Each EXPORTS dict is keyed by family-key (``"600"``, ``"79x"``,
+# ``"900-light"``, …) and maps to ``{recipes, settings, stats,
+# standard_layout, mycoffee_layout, capabilities}``. Splitting the
+# merged result into per-aspect dispatch tables removes ~40 lines of
+# mechanical per-family aliasing.
+#
+# Family notes (preserved from the pre-loop version):
 #   - 8000 (NICR 8101/8103/8107) uses brew_command_mode 0x04, all others 0x0B.
 #   - 900 (NICR 920/930) writes fluid amounts as ml × 10.
 #   - 79x has hasAromaBalance=True; others False.
 #   - 600 has only 1 MyCoffee slot; 700/79x/900/8000 have 4.
+#   - Maintenance stat gauges (600/601/610/611/620/621/640/641) are
+#     universal; only the "filter dependency" id varies per family
+#     (642 on 8000, 101 on 900/1000, 105 on 700/79X/600).
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Per-family settings register tables (HR-readable, HW-writable).
-# Per-family settings probe sets.
-# IDs are Nivona-specific and do NOT overlap with Melitta's setting IDs.
-# ---------------------------------------------------------------------------
-
-_SETTINGS_8000: tuple[SettingDescriptor, ...] = _family_8000.SETTINGS_8000
-_SETTINGS_600: tuple[SettingDescriptor, ...] = _family_600.SETTINGS
-_SETTINGS_700: tuple[SettingDescriptor, ...] = _family_700.SETTINGS_700
-_SETTINGS_79X: tuple[SettingDescriptor, ...] = _family_700.SETTINGS_79X
-# Legacy alias preserved for older tests / docstrings.
-_SETTINGS_600_700_BASE: tuple[SettingDescriptor, ...] = _SETTINGS_600
-_SETTINGS_900: tuple[SettingDescriptor, ...] = _family_900.SETTINGS_900
-_SETTINGS_900_LIGHT: tuple[SettingDescriptor, ...] = _family_900.SETTINGS_900_LIGHT
-_SETTINGS_1030: tuple[SettingDescriptor, ...] = _family_1030.SETTINGS_1030
-_SETTINGS_1040: tuple[SettingDescriptor, ...] = _family_1030.SETTINGS_1040
-
-
-# ---------------------------------------------------------------------------
-# Per-family stats register tables (HR-readable counters / percentages).
-# Each family exposes a different set of HR IDs — stat IDs overlap across
-# families but describe different counters (e.g. id 213 is
-# "total beverages" on 8000/900 but "single-cup brews" on 1000-family).
-# Maintenance gauges 600/601/610/611/620/621/640/641 are universal; only
-# the "filter dependency" id varies (642 on 8000, 101 on 900/1000,
-# 105 on 700/79X/600).
-# ---------------------------------------------------------------------------
-
-_STATS_8000: tuple[StatDescriptor, ...] = _family_8000.STATS_8000
-_STATS_700: tuple[StatDescriptor, ...] = _family_700.STATS_700
-_STATS_79X: tuple[StatDescriptor, ...] = _family_700.STATS_79X
-_STATS_600: tuple[StatDescriptor, ...] = _family_600.STATS
-_STATS_900: tuple[StatDescriptor, ...] = _family_900.STATS_900
-_STATS_900_LIGHT: tuple[StatDescriptor, ...] = _family_900.STATS_900_LIGHT
-_STATS_1030: tuple[StatDescriptor, ...] = _family_1030.STATS_1030
-_STATS_1040: tuple[StatDescriptor, ...] = _family_1030.STATS_1040
-
-
-# ---------------------------------------------------------------------------
-# Per-family standard-recipe layouts (resolveStandardRecipeLayout upstream).
-# Maps family_key → RecipeFieldLayout with byte-offsets inside
-# `RECIPE_BASE_REGISTER + selector*RECIPE_SLOT_STRIDE`.
-# ---------------------------------------------------------------------------
+_FAMILY_DATA: dict[str, dict] = {}
+for _mod in (_family_600, _family_700, _family_900, _family_1030, _family_8000):
+    _FAMILY_DATA.update(_mod.EXPORTS)
+del _mod
 
 _STANDARD_RECIPE_LAYOUTS: dict[str, RecipeFieldLayout] = {
-    "600": _family_600.STANDARD_LAYOUT,
-    "700": _family_700.STANDARD_LAYOUT_700,
-    "79x": _family_700.STANDARD_LAYOUT_79X,
-    "900": _family_900.STANDARD_LAYOUT_900,
-    "900-light": _family_900.STANDARD_LAYOUT_900_LIGHT,
-    "1030": _family_1030.STANDARD_LAYOUT_1030,
-    "1040": _family_1030.STANDARD_LAYOUT_1040,
-    "8000": _family_8000.STANDARD_LAYOUT_8000,
+    k: v["standard_layout"] for k, v in _FAMILY_DATA.items()
 }
-
-
-# ---------------------------------------------------------------------------
-# Per-family MyCoffee slot layouts (resolveMyCoffeeLayout upstream).
-# Offsets inside `MY_COFFEE_BASE_REGISTER + slot*MY_COFFEE_SLOT_STRIDE`.
-# ---------------------------------------------------------------------------
-
 _MYCOFFEE_LAYOUTS: dict[str, RecipeFieldLayout] = {
-    "600": _family_600.MYCOFFEE_LAYOUT,
-    "700": _family_700.MYCOFFEE_LAYOUT_700,
-    "79x": _family_700.MYCOFFEE_LAYOUT_79X,
-    "900": _family_900.MYCOFFEE_LAYOUT_900,
-    "900-light": _family_900.MYCOFFEE_LAYOUT_900_LIGHT,
-    "1030": _family_1030.MYCOFFEE_LAYOUT_1030,
-    "1040": _family_1030.MYCOFFEE_LAYOUT_1040,
-    "8000": _family_8000.MYCOFFEE_LAYOUT_8000,
+    k: v["mycoffee_layout"] for k, v in _FAMILY_DATA.items()
+}
+_NIVONA_FAMILIES: dict[str, MachineCapabilities] = {
+    k: v["capabilities"] for k, v in _FAMILY_DATA.items()
 }
 
 
@@ -167,45 +96,6 @@ def standard_recipe_layout(family_key: str) -> RecipeFieldLayout | None:
 def mycoffee_layout(family_key: str) -> RecipeFieldLayout | None:
     """Look up the MyCoffee slot layout for a family key. None if unknown."""
     return _MYCOFFEE_LAYOUTS.get(family_key)
-
-
-# ---------------------------------------------------------------------------
-# Per-family settings + stats dispatch
-# ---------------------------------------------------------------------------
-
-_FAMILY_SETTINGS: dict[str, tuple[SettingDescriptor, ...]] = {
-    "600": _SETTINGS_600,
-    "700": _SETTINGS_700,
-    "79x": _SETTINGS_79X,
-    "900": _SETTINGS_900,
-    "900-light": _SETTINGS_900_LIGHT,
-    "1030": _SETTINGS_1030,
-    "1040": _SETTINGS_1040,
-    "8000": _SETTINGS_8000,
-}
-
-_FAMILY_STATS: dict[str, tuple[StatDescriptor, ...]] = {
-    "600": _STATS_600,
-    "700": _STATS_700,
-    "79x": _STATS_79X,
-    "900": _STATS_900,
-    "900-light": _STATS_900_LIGHT,
-    "1030": _STATS_1030,
-    "1040": _STATS_1040,
-    "8000": _STATS_8000,
-}
-
-
-_NIVONA_FAMILIES: dict[str, MachineCapabilities] = {
-    "600": _family_600.CAPABILITIES,
-    "700": _family_700.CAPABILITIES_700,
-    "79x": _family_700.CAPABILITIES_79X,
-    "900": _family_900.CAPABILITIES_900,
-    "900-light": _family_900.CAPABILITIES_900_LIGHT,
-    "1030": _family_1030.CAPABILITIES_1030,
-    "1040": _family_1030.CAPABILITIES_1040,
-    "8000": _family_8000.CAPABILITIES_8000,
-}
 
 # ---------------------------------------------------------------------------
 # NivonaProfile
@@ -464,7 +354,7 @@ class NivonaProfile:
         # chilled-brew recipe selectors (8/9/10). Swap in the extended
         # recipe table so NivonaRecipeSelect lists them.
         if model_prefix == "8107":
-            caps = replace(caps, recipes=_RECIPES_8000_CHILLED)
+            caps = replace(caps, recipes=_family_8000.RECIPES_8000_CHILLED)
 
         if override is None:
             return caps
@@ -475,4 +365,4 @@ class NivonaProfile:
         """True if `selector` requires the chilled-brew flag byte (0x00)
         instead of the normal-brew flag (0x01) when building the HE
         payload. Only relevant on NICR 8107."""
-        return selector in _CHILLED_SELECTORS
+        return selector in _family_8000.CHILLED_SELECTORS
