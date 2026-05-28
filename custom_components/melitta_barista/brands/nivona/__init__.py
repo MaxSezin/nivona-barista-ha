@@ -23,7 +23,7 @@ from typing import ClassVar
 
 from dataclasses import replace
 
-from .base import (
+from ..base import (
     MachineCapabilities,
     RecipeDescriptor,
     RecipeFieldLayout,
