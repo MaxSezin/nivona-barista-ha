@@ -584,15 +584,14 @@ class EugsterProtocol:
 
         On any mismatch the method records the failure, leaves
         ``_key_prefix`` as ``None`` and still sets ``_handshake_done`` so
-        ``perform_handshake`` returns ``False`` instead of hanging. This
-        mirrors upstream ``parseHuResponsePayload`` (esp-coffee-bridge
-        ``src/nivona.cpp``) — without these checks an invalid response
-        would silently install a junk session key and every subsequent
-        RC4-encrypted frame would be undecryptable.
+        ``perform_handshake`` returns ``False`` instead of hanging.
+        Without these checks an invalid response would silently install
+        a junk session key and every subsequent RC4-encrypted frame
+        would be undecryptable.
         """
-        # Length gate. Upstream demands exactly 8; we accept >= 8 to
-        # tolerate a hypothetical trailing-byte firmware variant, then
-        # only consume the first 8.
+        # Length gate. The protocol requires exactly 8; we accept >= 8
+        # to tolerate a hypothetical trailing-byte firmware variant,
+        # then only consume the first 8.
         if len(payload) < 8:
             _LOGGER.warning(
                 "HU response too short: %d bytes (need >= 8); rejecting",

@@ -702,11 +702,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     v1 → v2: introduce ``brand`` field. All pre-existing entries are
     Melitta (the only previously supported brand).
 
-    v2 → v3 (0.77.0): rename two Nivona stat-sensor slugs to match the
-    official APK's ``diagnostics_*.json`` register descriptions. The
-    underlying register IDs (and therefore the wire reads) are
-    unchanged; only the entity ``unique_id`` and slug change, so HA's
-    statistics history follows the renames.
+    v2 → v3 (0.77.0): rename two Nivona stat-sensor slugs to align
+    with vendor terminology (`warm_milk` → `hot_milk` on 8000 family,
+    `lungo` → `coffee` on 1030). The underlying register IDs (and
+    therefore the wire reads) are unchanged; only the entity
+    ``unique_id`` and slug change, so HA's statistics history follows
+    the renames.
     """
     from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
 
@@ -729,9 +730,11 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # Unique-id format is `{address}_stat_{key}` per
                 # `sensor.BrandStatSensor.unique_id`.
                 renames = {
-                    # 8000 family — APK id 206 is Hot Milk, not Warm.
+                    # 8000 family — id 206 is the Hot Milk counter
+                    # (the vendor labels it "Heisse Milch"), not Warm.
                     "warm_milk": "hot_milk",
-                    # 1030/1040 family — APK id 201 is Coffee, not Lungo.
+                    # 1030/1040 family — id 201 is the Coffee counter,
+                    # not Lungo (vendor labels mismatch our earlier guess).
                     "lungo": "coffee",
                 }
                 registry = er.async_get(hass)
