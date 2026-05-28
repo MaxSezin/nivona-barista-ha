@@ -85,18 +85,28 @@ async def async_setup_entry(
     # capability-driven `BrandStatSensor` (`total_beverages`, id 213 on
     # 8000 family, id 215 on 1030, etc.) — no need to register the
     # Melitta-specific sensor at all.
-    if client.brand.brand_slug == "melitta":
+    # Capabilities may be None at setup time (resolved after BLE connect).
+    # For brands that don't use the legacy total-cups sensor, fall back
+    # to early family detection via the BLE scanner cache so generic
+    # capability-driven stat sensors can register without waiting.
+    caps = client.capabilities
+    if caps is None:
+        caps = resolve_caps_from_scanner(hass, entry.data.get(CONF_ADDRESS, ""), client.brand)
+
+    # Legacy Melitta total-cups sensor reads HR id 150 — capability-flagged
+    # because the register doesn't exist on other brands and would surface
+    # as "unknown".
+    if caps is not None and caps.uses_legacy_total_cups_sensor:
         entities.append(MelittaTotalCupsSensor(client, entry, name))
 
-    # Brand-capability-driven stat sensors (Nivona). Melitta has its own
-    # hand-tailored total_cups + per-recipe counters; generic stat sensors
-    # only register for non-Melitta brands with populated stats tables.
-    # client.capabilities may be None at setup time (resolved after BLE
-    # connect), so fall back to early family detection via BLE scanner cache.
-    caps = client.capabilities
-    if caps is None and client.brand.brand_slug != "melitta":
-        caps = resolve_caps_from_scanner(hass, entry.data.get(CONF_ADDRESS, ""), client.brand)
-    if caps is not None and caps.stats and client.brand.brand_slug != "melitta":
+    # Generic capability-driven stat sensors — only for brands that
+    # expose a stats table AND don't already have a hand-tailored
+    # total-cups sensor (Melitta).
+    if (
+        caps is not None
+        and caps.stats
+        and not caps.uses_legacy_total_cups_sensor
+    ):
         for descriptor in caps.stats:
             entities.append(BrandStatSensor(client, entry, name, descriptor))
 

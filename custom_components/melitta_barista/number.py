@@ -12,7 +12,9 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .ble_client import MelittaBleClient
+from homeassistant.const import CONF_ADDRESS
+
+from .ble_client import MelittaBleClient, resolve_caps_from_scanner
 from .const import MachineSettingId
 from .entity import MelittaDeviceMixin
 
@@ -104,8 +106,17 @@ async def async_setup_entry(
                 BrandSettingNumber(client, entry, name, descriptor),
             )
 
-    # Nivona brew-override inputs — persist local values used by brew button.
-    if client.brand.brand_slug == "nivona":
+    # Brew-override inputs — register for families that support per-brew
+    # temp-recipe overrides (currently every Nivona family; Melitta uses
+    # its own HC/HJ write path). Falls back to scanner-cached caps when
+    # `client.capabilities` is None at platform-setup time.
+    caps_for_overrides = client.capabilities or resolve_caps_from_scanner(
+        hass, entry.data.get(CONF_ADDRESS, ""), client.brand,
+    )
+    if (
+        caps_for_overrides is not None
+        and caps_for_overrides.supports_brew_overrides
+    ):
         entities.append(NivonaBrewOverrideNumber(
             client, entry, name, "strength", "Brew Strength",
             "mdi:gauge", 1, 5, 1, default=3,

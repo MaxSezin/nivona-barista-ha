@@ -66,29 +66,32 @@ async def async_setup_entry(
     # Confirm machine prompt (HY command) — generic
     entities.append(MelittaConfirmPromptButton(client, entry, name))
 
-    # Factory reset buttons — Nivona only. The vendor app exposes
-    # these on families 600 / 700 / 79x / 900 / 900-light / 1030 /
-    # 1040 but NOT on NIVO 8000, so we mirror that gating. Buttons
-    # are gated at runtime via the `available` property so a
-    # late-resolving family is handled gracefully.
-    if client.brand.brand_slug == "nivona":
+    # Setup-time decision: register the Nivona-family buttons whenever
+    # ANY family on the brand advertises the corresponding capability.
+    # Per-family runtime availability is then driven by the connected
+    # machine's capability flag (the buttons' `available` property —
+    # see `_NivonaFactoryResetButtonBase.available`).
+    brand_supports_factory_reset = any(
+        c.supports_factory_reset for c in client.brand.families.values()
+    )
+    if brand_supports_factory_reset:
         entities.append(NivonaFactoryResetSettingsButton(client, entry, name))
         entities.append(NivonaFactoryResetRecipesButton(client, entry, name))
 
-        # Per-slot MyCoffee brew buttons. Selector resolved as
-        # `first_mycoffee_selector + slot` (vendor uses 20 as the
-        # base for every Nivona model). Press is gated at runtime on
-        # the slot's cached `enabled` flag — slots that aren't
-        # "armed" stay unavailable so users don't accidentally fire
-        # an empty recipe.
-        caps_for_brew = client.capabilities
-        if caps_for_brew is None:
-            caps_for_brew = resolve_caps_from_scanner(
-                hass, entry.data.get(CONF_ADDRESS, ""), client.brand,
-            )
-        if caps_for_brew is not None and caps_for_brew.my_coffee_slots > 0:
-            for slot in range(caps_for_brew.my_coffee_slots):
-                entities.append(NivonaBrewMyCoffeeButton(client, entry, name, slot))
+    # Per-slot MyCoffee brew buttons — register for brands whose profile
+    # exposes a MyCoffee layout (Nivona). Selector resolved as
+    # ``first_mycoffee_selector + slot``. Press is gated at runtime on
+    # the slot's cached ``enabled`` flag.
+    caps_for_brew = client.capabilities or resolve_caps_from_scanner(
+        hass, entry.data.get(CONF_ADDRESS, ""), client.brand,
+    )
+    if (
+        caps_for_brew is not None
+        and caps_for_brew.my_coffee_slots > 0
+        and client.brand.mycoffee_layout(caps_for_brew.family_key) is not None
+    ):
+        for slot in range(caps_for_brew.my_coffee_slots):
+            entities.append(NivonaBrewMyCoffeeButton(client, entry, name, slot))
 
     # Maintenance buttons
     entities.append(MelittaMaintenanceButton(
@@ -329,22 +332,14 @@ class MelittaResetRecipeButton(_MelittaButtonBase):
 
 
 
-# Nivona families that expose factory-reset buttons in the vendor app.
-# NIVO 8000 does not — its settings screen has no reset entries — so
-# we follow the same gating here.
-_FACTORY_RESET_FAMILIES = frozenset(
-    {"600", "700", "79x", "900", "900-light", "1030", "1040"}
-)
-
-
 class _NivonaFactoryResetButtonBase(_MelittaButtonBase):
     """Shared base for the two Nivona factory-reset buttons.
 
     Both buttons send the same HE opcode with different 18-byte
     command-id payloads (see `protocol._build_he_command_payload`).
-    Available only on Nivona families that expose the corresponding
-    menu in the vendor app — NIVO 8000 has no factory-reset menu
-    there, so we hide the entity for it.
+    Available only on families that advertise
+    ``MachineCapabilities.supports_factory_reset`` (NIVO 8000 has no
+    factory-reset menu in the vendor app, so its capability is False).
     """
 
     _attr_entity_category = EntityCategory.CONFIG
@@ -367,10 +362,9 @@ class _NivonaFactoryResetButtonBase(_MelittaButtonBase):
         caps = getattr(self._client, "capabilities", None)
         if caps is None:
             # Capability hasn't resolved yet (usually moments after
-            # connect). Stay unavailable until we know whether this is
-            # an 8000-family machine.
+            # connect). Stay unavailable until we know.
             return False
-        return caps.family_key in _FACTORY_RESET_FAMILIES
+        return caps.supports_factory_reset
 
     async def async_press(self) -> None:
         _LOGGER.warning(

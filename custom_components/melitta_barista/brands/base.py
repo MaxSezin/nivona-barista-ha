@@ -124,6 +124,33 @@ class MachineCapabilities:
     settings: tuple[SettingDescriptor, ...] = ()
     stats: tuple[StatDescriptor, ...] = ()
 
+    # ----------------------------------------------------------------- #
+    # Feature flags (introduced v0.79.0 — see PR-31).
+    #
+    # Boolean capabilities consumed by HA entity factories to drive
+    # registration without testing `brand_slug == "X"`. Each flag is
+    # set in the family-specific MachineCapabilities literal at the
+    # point the family is declared (per-family for Nivona, per-model
+    # for Melitta).
+    # ----------------------------------------------------------------- #
+
+    # Whether the firmware exposes factory-reset HE commands (50/51).
+    # Nivona families 600 / 700 / 79x / 900 / 900-light / 1030 / 1040 = True;
+    # NIVO 8000 = False (vendor app does not expose it either);
+    # Melitta = False.
+    supports_factory_reset: bool = False
+
+    # Whether the family supports per-brew overrides via the
+    # temp-recipe slot (HW writes to 9001 + field offset before HE).
+    # All Nivona families = True; Melitta = False (uses HC/HJ writes).
+    supports_brew_overrides: bool = False
+
+    # Legacy total-cups sensor reads HR register id 150 — a Melitta
+    # convention. Non-Melitta brands derive total_beverages from the
+    # capability-driven `stats` table instead. Melitta = True; all
+    # Nivona families = False.
+    uses_legacy_total_cups_sensor: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Brand profile Protocol
