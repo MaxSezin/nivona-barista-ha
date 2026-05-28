@@ -50,10 +50,12 @@ async def async_setup_entry(
     if "HJ" in client.brand.supported_extensions:
         entities.append(MelittaBrewFreestyleButton(client, entry, name))
 
-    # Nivona brew button — always present for brand=nivona.
-    # Recipe selection comes from NivonaRecipeSelect at press time.
-    if (client.brand.brand_slug == "nivona"
-            and "HC" not in client.brand.supported_extensions):
+    # HE-selector brew button — for brands that brew recipes via HE
+    # selector instead of HC opcode. Recipe selection comes from
+    # NivonaRecipeSelect at press time. ``HC not in extensions`` is
+    # the contract for "use HE-selector brewing" — any future brand
+    # without HC support takes this path.
+    if "HC" not in client.brand.supported_extensions:
         entities.append(NivonaBrewButton(client, entry, name))
 
     # Cancel button — generic

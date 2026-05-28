@@ -98,7 +98,11 @@ async def async_setup_entry(
     # Options-bearing descriptors become selects in select.py; here we
     # handle only the raw-number ones.
     caps = client.capabilities
-    if caps is not None and caps.settings and client.brand.brand_slug != "melitta":
+    # Generic capability-driven setting numbers — register for brands
+    # whose families publish a non-empty settings tuple (Nivona). Melitta
+    # has its own hand-tailored MachineSettingNumber entities below and
+    # leaves `caps.settings = ()`, so this block naturally skips it.
+    if caps is not None and caps.settings:
         for descriptor in caps.settings:
             if descriptor.options:
                 continue
