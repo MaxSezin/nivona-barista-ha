@@ -30,6 +30,39 @@ from ..base import (
     SettingDescriptor,
     StatDescriptor,
 )
+from ._crypto import _NIVONA_HU_TABLE, _NIVONA_RC4_KEY
+from ._options import (
+    _AUTO_OFF_8000_OPTIONS,
+    _AUTO_OFF_STANDARD_OPTIONS,
+    _HARDNESS_OPTIONS,
+    _MILK_FOAM_TEMPERATURE_1040_OPTIONS,
+    _MILK_TEMPERATURE_1030_OPTIONS,
+    _MILK_TEMPERATURE_1040_OPTIONS,
+    _OFF_ON_OPTIONS,
+    _POWER_ON_FROTHER_TIME_1040_OPTIONS,
+    _PROFILE_1040_OPTIONS,
+    _PROFILE_STANDARD_OPTIONS,
+    _TANK_LIGHT_BRIGHTNESS_900_OPTIONS,
+    _TANK_LIGHT_COLOR_900_OPTIONS,
+    _TEMP_ON_OFF,
+    _TEMPERATURE_OPTIONS,
+)
+from ._prefixes import (
+    _MODEL_OVERRIDES,
+    _MODEL_SETTINGS_EXCLUDE,
+    _PREFIX_TO_FAMILY,
+)
+from ._registers import (
+    MY_COFFEE_BASE_REGISTER,
+    MY_COFFEE_SLOT_STRIDE,
+    RECIPE_BASE_REGISTER,
+    RECIPE_SLOT_STRIDE,
+    TEMP_RECIPE_BASE_REGISTER,
+    TEMP_RECIPE_TYPE_REGISTER,
+    mycoffee_register,
+    standard_recipe_register,
+)
+from ._stats_helpers import _count, _flag, _pct
 
 
 # ---------------------------------------------------------------------------
@@ -132,39 +165,6 @@ _LOGGER = logging.getLogger("melitta_barista")
 
 
 # ---------------------------------------------------------------------------
-# Crypto — Nivona-specific runtime RC4 key.
-#
-# 32-byte ASCII key fed to the vendor's stream cipher after the
-# customer-key bootstrap.
-# ---------------------------------------------------------------------------
-
-_NIVONA_RC4_KEY: bytes = b"NIV_060616_V10_1*9#3!4$6+4res-?3"
-assert len(_NIVONA_RC4_KEY) == 32, "Nivona RC4 key must be 32 bytes"
-
-
-# Nivona HU lookup table (256 bytes).
-_NIVONA_HU_TABLE = bytes([
-    0x62, 0x06, 0x55, 0x96, 0x24, 0x17, 0x70, 0xA4, 0x87, 0xCF, 0xA9, 0x05, 0x1A, 0x40, 0xA5, 0xDB,
-    0x3D, 0x14, 0x44, 0x59, 0x82, 0x3F, 0x34, 0x66, 0x18, 0xE5, 0x84, 0xF5, 0x50, 0xD8, 0xC3, 0x73,
-    0x5A, 0xA8, 0x9C, 0xCB, 0xB1, 0x78, 0x02, 0xBE, 0xBC, 0x07, 0x64, 0xB9, 0xAE, 0xF3, 0xA2, 0x0A,
-    0xED, 0x12, 0xFD, 0xE1, 0x08, 0xD0, 0xAC, 0xF4, 0xFF, 0x7E, 0x65, 0x4F, 0x91, 0xEB, 0xE4, 0x79,
-    0x7B, 0xFB, 0x43, 0xFA, 0xA1, 0x00, 0x6B, 0x61, 0xF1, 0x6F, 0xB5, 0x52, 0xF9, 0x21, 0x45, 0x37,
-    0x3B, 0x99, 0x1D, 0x09, 0xD5, 0xA7, 0x54, 0x5D, 0x1E, 0x2E, 0x5E, 0x4B, 0x97, 0x72, 0x49, 0xDE,
-    0xC5, 0x60, 0xD2, 0x2D, 0x10, 0xE3, 0xF8, 0xCA, 0x33, 0x98, 0xFC, 0x7D, 0x51, 0xCE, 0xD7, 0xBA,
-    0x27, 0x9E, 0xB2, 0xBB, 0x83, 0x88, 0x01, 0x31, 0x32, 0x11, 0x8D, 0x5B, 0x2F, 0x81, 0x3C, 0x63,
-    0x9A, 0x23, 0x56, 0xAB, 0x69, 0x22, 0x26, 0xC8, 0x93, 0x3A, 0x4D, 0x76, 0xAD, 0xF6, 0x4C, 0xFE,
-    0x85, 0xE8, 0xC4, 0x90, 0xC6, 0x7C, 0x35, 0x04, 0x6C, 0x4A, 0xDF, 0xEA, 0x86, 0xE6, 0x9D, 0x8B,
-    0xBD, 0xCD, 0xC7, 0x80, 0xB0, 0x13, 0xD3, 0xEC, 0x7F, 0xC0, 0xE7, 0x46, 0xE9, 0x58, 0x92, 0x2C,
-    0xB7, 0xC9, 0x16, 0x53, 0x0D, 0xD6, 0x74, 0x6D, 0x9F, 0x20, 0x5F, 0xE2, 0x8C, 0xDC, 0x39, 0x0C,
-    0xDD, 0x1F, 0xD1, 0xB6, 0x8F, 0x5C, 0x95, 0xB8, 0x94, 0x3E, 0x71, 0x41, 0x25, 0x1B, 0x6A, 0xA6,
-    0x03, 0x0E, 0xCC, 0x48, 0x15, 0x29, 0x38, 0x42, 0x1C, 0xC1, 0x28, 0xD9, 0x19, 0x36, 0xB3, 0x75,
-    0xEE, 0x57, 0xF0, 0x9B, 0xB4, 0xAA, 0xF2, 0xD4, 0xBF, 0xA3, 0x4E, 0xDA, 0x89, 0xC2, 0xAF, 0x6E,
-    0x2B, 0x77, 0xE0, 0x47, 0x7A, 0x8E, 0x2A, 0xA0, 0x68, 0x30, 0xF7, 0x67, 0x0F, 0x0B, 0x8A, 0xEF,
-])
-assert len(_NIVONA_HU_TABLE) == 256, "Nivona HU table must be 256 bytes"
-
-
-# ---------------------------------------------------------------------------
 # Family capabilities — 7 Nivona families covered by the upstream RE.
 #
 # Notes on per-family flags:
@@ -173,64 +173,6 @@ assert len(_NIVONA_HU_TABLE) == 256, "Nivona HU table must be 256 bytes"
 #   - 79x has hasAromaBalance=True; others False.
 #   - 600 has only 1 MyCoffee slot; 700/79x/900/8000 have 4.
 # ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Setting option enums (value_code → human label).
-# ---------------------------------------------------------------------------
-
-_HARDNESS_OPTIONS = ((0x0000, "soft"), (0x0001, "medium"), (0x0002, "hard"), (0x0003, "very hard"))
-_OFF_ON_OPTIONS = ((0x0000, "off"), (0x0001, "on"))
-_AUTO_OFF_8000_OPTIONS = (
-    (0x0000, "10 min"), (0x0001, "30 min"), (0x0002, "1 h"),
-    (0x0003, "2 h"), (0x0004, "4 h"), (0x0005, "6 h"),
-    (0x0006, "8 h"), (0x0007, "10 h"), (0x0008, "12 h"),
-    (0x0009, "14 h"), (0x0010, "16 h"),
-)
-_AUTO_OFF_STANDARD_OPTIONS = (
-    (0x0000, "10 min"), (0x0001, "30 min"), (0x0002, "1 h"),
-    (0x0003, "2 h"), (0x0004, "4 h"), (0x0005, "6 h"),
-    (0x0006, "8 h"), (0x0007, "10 h"), (0x0008, "12 h"),
-    (0x0009, "off"),
-)
-_TEMP_ON_OFF = ((0x0000, "off"), (0x0001, "on"))
-_TEMPERATURE_OPTIONS = ((0x0000, "normal"), (0x0001, "high"), (0x0002, "max"), (0x0003, "individual"))
-_PROFILE_STANDARD_OPTIONS = (
-    (0x0000, "dynamic"), (0x0001, "constant"),
-    (0x0002, "intense"), (0x0003, "individual"),
-)
-_PROFILE_1040_OPTIONS = (
-    (0x0000, "dynamic"), (0x0001, "constant"),
-    (0x0002, "intense"), (0x0003, "quick"), (0x0004, "individual"),
-)
-_MILK_TEMPERATURE_1030_OPTIONS = (
-    (0x0000, "high"), (0x0001, "max"), (0x0002, "individual"),
-)
-_MILK_TEMPERATURE_1040_OPTIONS = (
-    (0x0000, "normal"), (0x0001, "high"), (0x0002, "hot"),
-    (0x0003, "max"), (0x0004, "individual"),
-)
-_MILK_FOAM_TEMPERATURE_1040_OPTIONS = (
-    (0x0000, "warm"), (0x0001, "max"), (0x0002, "individual"),
-)
-_POWER_ON_FROTHER_TIME_1040_OPTIONS = (
-    (0x0000, "10 min"), (0x0001, "20 min"),
-    (0x0002, "30 min"), (0x0003, "40 min"),
-)
-
-# 900 family — tank-lighting accent + save-energy add-ons that do not
-# exist on other Nivona families.
-_TANK_LIGHT_COLOR_900_OPTIONS = (
-    (0x0000, "white"), (0x0001, "red"),    (0x0002, "orange"),
-    (0x0003, "yellow"), (0x0004, "green"), (0x0005, "cyan"),
-    (0x0006, "blue"),   (0x0007, "violet"),(0x0008, "rainbow"),
-)
-_TANK_LIGHT_BRIGHTNESS_900_OPTIONS = (
-    (0x0000, "low"), (0x0001, "medium"), (0x0002, "high"),
-)
-# "Minutes since midnight" bucket for AutoOn hour/minute pair. Raw
-# values go through unchanged (0..59 / 0..23); we surface them as a
-# number entity rather than an options list.
-
 
 # ---------------------------------------------------------------------------
 # Per-family settings register tables (HR-readable, HW-writable).
@@ -346,27 +288,6 @@ _SETTINGS_1040: tuple[SettingDescriptor, ...] = (
 # the "filter dependency" id varies (642 on 8000, 101 on 900/1000,
 # 105 on 700/79X/600).
 # ---------------------------------------------------------------------------
-
-def _count(stat_id: int, key: str, title: str, section: str = "beverages") -> StatDescriptor:
-    return StatDescriptor(
-        stat_id=stat_id, key=key, title=title,
-        unit="count", is_diagnostic=(section == "maintenance"),
-    )
-
-
-def _pct(stat_id: int, key: str, title: str) -> StatDescriptor:
-    return StatDescriptor(
-        stat_id=stat_id, key=key, title=title,
-        unit="%", is_diagnostic=True,
-    )
-
-
-def _flag(stat_id: int, key: str, title: str) -> StatDescriptor:
-    return StatDescriptor(
-        stat_id=stat_id, key=key, title=title,
-        unit=None, is_diagnostic=True,
-    )
-
 
 _STATS_8000: tuple[StatDescriptor, ...] = (
     _count(200, "espresso", "Espresso"),
@@ -576,85 +497,6 @@ _STATS_1040: tuple[StatDescriptor, ...] = tuple(
 
 
 # ---------------------------------------------------------------------------
-# Per-model overrides.
-# Key: 3- or 4-char serial prefix; value: (my_coffee_slots, strength_levels).
-# Other fields are taken from the family default.
-# ---------------------------------------------------------------------------
-
-_MODEL_OVERRIDES: dict[str, dict] = {
-    # 4-char NIVO 8xxx
-    "8101": {"my_coffee_slots": 9, "strength_levels": 5},
-    "8103": {"my_coffee_slots": 9, "strength_levels": 5},
-    "8107": {"my_coffee_slots": 9, "strength_levels": 5},
-    # NICR 600 — all 5 strength levels; MyCoffee slot count varies.
-    "660": {"my_coffee_slots": 1, "strength_levels": 5},
-    "670": {"my_coffee_slots": 5, "strength_levels": 5},
-    "675": {"my_coffee_slots": 5, "strength_levels": 5},
-    "680": {"my_coffee_slots": 5, "strength_levels": 5},
-    # NICR 700 (single-slot variants, 3 strength levels)
-    "756": {"my_coffee_slots": 1, "strength_levels": 3},
-    "758": {"my_coffee_slots": 1, "strength_levels": 3},
-    "759": {"my_coffee_slots": 1, "strength_levels": 3},
-    # NICR 700 late revisions — single MyCoffee slot but full
-    # 5-band strength range (hardware parity with 788/789 and up).
-    "768": {"my_coffee_slots": 1, "strength_levels": 5},
-    "769": {"my_coffee_slots": 1, "strength_levels": 5},
-    "778": {"my_coffee_slots": 1, "strength_levels": 5},
-    "779": {"my_coffee_slots": 1, "strength_levels": 5},
-    # NICR 700 (five-slot variants)
-    "788": {"my_coffee_slots": 5, "strength_levels": 5},
-    "789": {"my_coffee_slots": 5, "strength_levels": 5},
-    # NICR 79x
-    "790": {"my_coffee_slots": 5, "strength_levels": 5},
-    "791": {"my_coffee_slots": 5, "strength_levels": 5},
-    "792": {"my_coffee_slots": 5, "strength_levels": 5},
-    "793": {"my_coffee_slots": 5, "strength_levels": 5},
-    "794": {"my_coffee_slots": 5, "strength_levels": 5},
-    "795": {"my_coffee_slots": 5, "strength_levels": 5},
-    "796": {"my_coffee_slots": 5, "strength_levels": 5},
-    "797": {"my_coffee_slots": 5, "strength_levels": 5},
-    "799": {"my_coffee_slots": 5, "strength_levels": 5},
-    # NICR 900 / 900-light
-    "920": {"my_coffee_slots": 9, "strength_levels": 5},
-    "930": {"my_coffee_slots": 9, "strength_levels": 5},
-    "960": {"my_coffee_slots": 9, "strength_levels": 5},
-    "965": {"my_coffee_slots": 9, "strength_levels": 5},
-    "970": {"my_coffee_slots": 9, "strength_levels": 5},
-    # NICR 1030 / 1040
-    "030": {"my_coffee_slots": 18, "strength_levels": 5},
-    "040": {"my_coffee_slots": 18, "strength_levels": 5},
-}
-
-
-# ---------------------------------------------------------------------------
-# Register bases (for future read/write recipe support — not exposed yet).
-# Upstream: standard recipes at 10000 + selector*100; MyCoffee at 20000 + slot*100.
-# ---------------------------------------------------------------------------
-
-RECIPE_BASE_REGISTER = 10000
-RECIPE_SLOT_STRIDE = 100
-
-# Per-brew temporary-override slot.
-#
-# The machine exposes a SINGLE fixed register (9001) for per-brew
-# overrides — strength, two_cups, fluid amounts, temperatures — which
-# is consumed by the next HE start_process and then discarded.
-#
-# Writing the same fields into the persistent per-selector slot
-# (`10000 + selector*100 + offset`) permanently rewrites the standard
-# recipe definition on the machine, which is why HA's previous
-# implementation was data-destructive when users adjusted the Nivona
-# override number entities.
-TEMP_RECIPE_BASE_REGISTER = 9001  # overrides land at this + field offset
-TEMP_RECIPE_TYPE_REGISTER = 9001  # same register, written first with
-                                  # the recipe-class selector, telling
-                                  # the firmware which recipe the
-                                  # subsequent offsets belong to
-MY_COFFEE_BASE_REGISTER = 20000
-MY_COFFEE_SLOT_STRIDE = 100
-
-
-# ---------------------------------------------------------------------------
 # Per-family standard-recipe layouts (resolveStandardRecipeLayout upstream).
 # Maps family_key → RecipeFieldLayout with byte-offsets inside
 # `RECIPE_BASE_REGISTER + selector*RECIPE_SLOT_STRIDE`.
@@ -817,20 +659,6 @@ _MYCOFFEE_LAYOUTS: dict[str, RecipeFieldLayout] = {
 }
 
 
-def standard_recipe_register(selector: int, offset: int) -> int:
-    """Compute absolute register ID for ``(selector, offset)`` in the
-    standard-recipe region. Returns ``10000 + selector*100 + offset``.
-    """
-    return RECIPE_BASE_REGISTER + selector * RECIPE_SLOT_STRIDE + offset
-
-
-def mycoffee_register(slot: int, offset: int) -> int:
-    """Compute absolute register ID for ``(slot, offset)`` in the
-    MyCoffee region. Returns ``20000 + slot*100 + offset``.
-    """
-    return MY_COFFEE_BASE_REGISTER + slot * MY_COFFEE_SLOT_STRIDE + offset
-
-
 def standard_recipe_layout(family_key: str) -> RecipeFieldLayout | None:
     """Look up the standard-recipe layout for a family key. None if unknown."""
     return _STANDARD_RECIPE_LAYOUTS.get(family_key)
@@ -854,14 +682,6 @@ _FAMILY_SETTINGS: dict[str, tuple[SettingDescriptor, ...]] = {
     "1030": _SETTINGS_1030,
     "1040": _SETTINGS_1040,
     "8000": _SETTINGS_8000,
-}
-
-# Per-model settings overrides applied on top of the family table.
-# Currently the only surgical filter is dropping `profile` (id 106)
-# for NICR758 — that specific model omits the aroma-balance profile
-# feature, so reading id 106 would NACK/timeout on real hardware.
-_MODEL_SETTINGS_EXCLUDE: dict[str, frozenset[int]] = {
-    "758": frozenset({106}),
 }
 
 _FAMILY_STATS: dict[str, tuple[StatDescriptor, ...]] = {
@@ -984,27 +804,6 @@ _NIVONA_FAMILIES: dict[str, MachineCapabilities] = {
         stats=_FAMILY_STATS['8000'],
     ),
 }
-
-# Serial-prefix → family. Exhaustive 4-char then 3-char cascade.
-_PREFIX_TO_FAMILY: dict[str, str] = {
-    # 4-char (NIVO 8xxx serials). Only 8101 / 8103 / 8107 are confirmed
-    # model codes in the 8000 family. Newer 81xx variants reported in
-    # the field (#15) fall through to "unknown family"; we'd rather
-    # surface that honestly than guess at capability layouts.
-    "8101": "8000", "8103": "8000", "8107": "8000",
-    # 3-char (NICR series; matched after 4-char miss)
-    "660": "600", "670": "600", "675": "600", "680": "600",
-    "756": "700", "758": "700", "759": "700",
-    "768": "700", "769": "700", "778": "700", "779": "700",
-    "788": "700", "789": "700",
-    "790": "79x", "791": "79x", "792": "79x", "793": "79x",
-    "794": "79x", "795": "79x", "796": "79x", "797": "79x", "799": "79x",
-    "920": "900", "930": "900",
-    "960": "900-light", "965": "900-light", "970": "900-light",
-    "030": "1030",
-    "040": "1040",
-}
-
 
 # ---------------------------------------------------------------------------
 # NivonaProfile
