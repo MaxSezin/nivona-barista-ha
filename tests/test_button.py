@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.melitta_barista.brands import MelittaProfile, NivonaProfile
 from custom_components.melitta_barista.const import DOMAIN, MachineProcess, RecipeId
 from custom_components.melitta_barista.protocol import MachineStatus
 
@@ -37,13 +39,21 @@ def _mock_client(status=None, selected_recipe=None):
     client.start_descaling = AsyncMock(return_value=True)
     client.switch_off = AsyncMock(return_value=True)
     client.reset_recipe_default = AsyncMock(return_value=True)
+    # PR-31: real capabilities mean more entity types instantiate
+    # during setup. Stub the async settings/recipe IO they call.
+    client.read_setting = AsyncMock(return_value=None)
+    client.write_setting = AsyncMock(return_value=True)
+    client.read_recipe = AsyncMock(return_value=None)
+    client.write_recipe = AsyncMock(return_value=True)
+    client.brew_mycoffee_slot = AsyncMock(return_value=True)
+    client.my_coffee_slots = None
     client.profile_names = {0: "My Coffee"}
     client.directkey_recipes = {}
-    # Brand profile mock (Melitta default — supports HC/HJ)
-    client.brand = MagicMock()
-    client.brand.brand_slug = "melitta"
-    client.brand.brand_name = "Melitta"
-    client.brand.supported_extensions = frozenset({"HC", "HJ"})
+    # Real Melitta profile + real Barista TS capabilities — gives the
+    # capability-driven gating in entity factories actual values to
+    # compare against instead of MagicMock placeholders.
+    client.brand = MelittaProfile()
+    client.capabilities = client.brand.capabilities_for("barista_ts")
     return client
 
 
@@ -613,15 +623,11 @@ def _mock_nivona_client(family_key="700"):
     Used to verify factory-reset button gating per family.
     """
     client = _mock_client()
-    client.brand.brand_slug = "nivona"
-    client.brand.brand_name = "Nivona"
-    client.brand.supported_extensions = frozenset()
-    # Minimal capabilities stub — enough for `available` checks.
-    caps = MagicMock()
-    caps.family_key = family_key
-    caps.my_coffee_slots = 1
-    caps.stats = ()
-    client.capabilities = caps
+    client.brand = NivonaProfile()
+    # Use the real per-family capabilities so capability-driven gating
+    # (supports_factory_reset, my_coffee_slots, etc.) tests the same
+    # values the production code sees.
+    client.capabilities = client.brand.capabilities_for(family_key)
     client.execute_he_command = AsyncMock(return_value=True)
     return client
 
@@ -721,7 +727,7 @@ async def test_mycoffee_brew_buttons_registered_for_nivona_8000(
 ) -> None:
     """9 slots on 8000 family → 9 brew-MyCoffee buttons."""
     client = _mock_nivona_client(family_key="8000")
-    client.capabilities.my_coffee_slots = 9
+    client.capabilities = replace(client.capabilities, my_coffee_slots=9)
     client.my_coffee_slots = None
     await _setup_integration(hass, mock_entry, client)
 
@@ -737,7 +743,7 @@ async def test_mycoffee_brew_buttons_unavailable_when_slot_not_enabled(
 ) -> None:
     """Slot N's button stays unavailable if the cached `enabled` flag is 0."""
     client = _mock_nivona_client(family_key="8000")
-    client.capabilities.my_coffee_slots = 3
+    client.capabilities = replace(client.capabilities, my_coffee_slots=3)
     # Simulate post-connect cache: only slot 1 is armed.
     client.my_coffee_slots = [
         {"enabled": 0, "coffee_amount": 0},
@@ -771,7 +777,7 @@ async def test_mycoffee_brew_button_press_invokes_brew_mycoffee_slot(
 ) -> None:
     """Pressing the slot-N button calls brew_mycoffee_slot(N)."""
     client = _mock_nivona_client(family_key="8000")
-    client.capabilities.my_coffee_slots = 4
+    client.capabilities = replace(client.capabilities, my_coffee_slots=4)
     client.my_coffee_slots = [
         {"enabled": 1, "coffee_amount": 30},  # slot 0
         {"enabled": 1, "coffee_amount": 40},

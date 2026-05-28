@@ -47,11 +47,17 @@ def _mock_client():
     client.start_polling = MagicMock()
     client.profile_names = {0: "My Coffee"}
     client.directkey_recipes = {}
-    # Brand profile mock (Melitta default — supports HC/HJ)
-    client.brand = MagicMock()
-    client.brand.brand_slug = "melitta"
-    client.brand.brand_name = "Melitta"
-    client.brand.supported_extensions = frozenset({"HC", "HJ"})
+    # Real Melitta profile + capabilities for the capability-driven gating
+    # in entity factories. PR-31/32: shared layers no longer test brand_slug.
+    from custom_components.melitta_barista.brands import MelittaProfile  # noqa: PLC0415
+    client.brand = MelittaProfile()
+    client.capabilities = client.brand.capabilities_for("barista_ts")
+    client.read_setting = AsyncMock(return_value=None)
+    client.write_setting = AsyncMock(return_value=True)
+    client.read_recipe = AsyncMock(return_value=None)
+    client.write_recipe = AsyncMock(return_value=True)
+    client.brew_mycoffee_slot = AsyncMock(return_value=True)
+    client.my_coffee_slots = None
     return client
 
 

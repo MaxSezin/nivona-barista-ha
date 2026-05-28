@@ -122,14 +122,15 @@ async def async_setup_entry(
             MelittaProfileSelect(client, entry, name),
         ])
     # Brand capability-driven settings selects (Nivona + future brands).
-    # For Melitta these are already exposed via the legacy MelittaSettingSwitch
-    # / hand-coded number entities; we only register generic settings selects
-    # when the brand has a populated per-family table AND Melitta-native
-    # setting entities have not claimed the same IDs (i.e. Nivona only).
-    caps = client.capabilities
-    if caps is None and client.brand.brand_slug != "melitta":
-        caps = resolve_caps_from_scanner(hass, entry.data.get(CONF_ADDRESS, ""), client.brand)
-    if caps is not None and caps.settings and client.brand.brand_slug != "melitta":
+    # Generic capability-driven settings selects — register for brands
+    # whose families publish a non-empty `caps.settings` tuple (Nivona).
+    # Melitta exposes settings via its legacy MelittaSettingSwitch /
+    # hand-coded number entities and leaves `caps.settings = ()`, so
+    # this block naturally skips it.
+    caps = client.capabilities or resolve_caps_from_scanner(
+        hass, entry.data.get(CONF_ADDRESS, ""), client.brand,
+    )
+    if caps is not None and caps.settings:
         for descriptor in caps.settings:
             # Only descriptors with a discrete options list become
             # selects. Options-less descriptors (raw numeric settings
@@ -140,11 +141,11 @@ async def async_setup_entry(
             entities.append(
                 BrandSettingSelect(client, entry, name, descriptor)
             )
-    # Nivona-style brew: always add the recipe select for Nivona brand.
-    # Recipe list is fetched from capabilities at the time HA renders options
-    # (or dynamically on each update if caps aren't resolved yet at setup time).
-    if (client.brand.brand_slug == "nivona"
-            and "HC" not in client.brand.supported_extensions):
+    # HE-selector brew recipe select — for brands that brew via HE
+    # selector instead of HC opcode. Recipe list is fetched from
+    # capabilities at the time HA renders options (or dynamically on
+    # each update if caps aren't resolved yet at setup time).
+    if "HC" not in client.brand.supported_extensions:
         entities.append(NivonaRecipeSelect(client, entry, name))
 
     if "HJ" in client.brand.supported_extensions:

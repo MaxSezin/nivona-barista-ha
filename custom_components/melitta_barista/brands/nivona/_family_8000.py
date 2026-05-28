@@ -125,6 +125,9 @@ CAPABILITIES_8000 = MachineCapabilities(
     model_name="Nivona NIVO 8xxx",
     supports_recipe_writes=False,
     supports_stats=True,
+    # 8000 has no factory-reset HE in vendor app — mirror that gating.
+    supports_factory_reset=False,
+    supports_brew_overrides=True,
     my_coffee_slots=4,
     strength_levels=5,
     brew_command_mode=0x04,    # NIVO8000 uses different brew opcode byte

@@ -124,6 +124,33 @@ class MachineCapabilities:
     settings: tuple[SettingDescriptor, ...] = ()
     stats: tuple[StatDescriptor, ...] = ()
 
+    # ----------------------------------------------------------------- #
+    # Feature flags (introduced v0.79.0 — see PR-31).
+    #
+    # Boolean capabilities consumed by HA entity factories to drive
+    # registration without testing `brand_slug == "X"`. Each flag is
+    # set in the family-specific MachineCapabilities literal at the
+    # point the family is declared (per-family for Nivona, per-model
+    # for Melitta).
+    # ----------------------------------------------------------------- #
+
+    # Whether the firmware exposes factory-reset HE commands (50/51).
+    # Nivona families 600 / 700 / 79x / 900 / 900-light / 1030 / 1040 = True;
+    # NIVO 8000 = False (vendor app does not expose it either);
+    # Melitta = False.
+    supports_factory_reset: bool = False
+
+    # Whether the family supports per-brew overrides via the
+    # temp-recipe slot (HW writes to 9001 + field offset before HE).
+    # All Nivona families = True; Melitta = False (uses HC/HJ writes).
+    supports_brew_overrides: bool = False
+
+    # Legacy total-cups sensor reads HR register id 150 — a Melitta
+    # convention. Non-Melitta brands derive total_beverages from the
+    # capability-driven `stats` table instead. Melitta = True; all
+    # Nivona families = False.
+    uses_legacy_total_cups_sensor: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Brand profile Protocol
@@ -177,6 +204,50 @@ class BrandProfile(Protocol):
         other Nivona families use 8=READY/11=PRODUCT. Implementations
         translate raw codes to the abstract ``MachineProcess`` enum.
         """
+
+    # ----------------------------------------------------------------- #
+    # Recipe write-path contract (introduced v0.79.0 — see PR-32).
+    #
+    # Brands that don't expose recipe writes / brew overrides
+    # implement these as no-op stubs returning ``None`` / ``1`` /
+    # ``False``. Callers in shared mixins (``_ble_commands``,
+    # ``_ble_recipes``, ``sensor``) use them to drive behaviour
+    # without testing ``brand_slug``.
+    # ----------------------------------------------------------------- #
+
+    # Fixed HW register that announces the temp-recipe class before
+    # an HE brew with per-brew overrides. ``None`` on brands that
+    # don't use this single-slot temp-recipe pattern.
+    temp_recipe_type_register: int | None
+
+    def temp_recipe_register(
+        self,
+        family_key: str,
+        recipe_id: int,
+        field: str,
+    ) -> int | None:
+        """HW register for a per-brew override field, or ``None`` if
+        the family / field is not writable on this brand."""
+
+    def fluid_write_scale(self, family_key: str) -> int:
+        """Per-family fluid-amount scaling factor for write paths.
+        Returns 1 for brands that use ml directly, 10 for families
+        like Nivona 900 that historically wrote ml × 10."""
+
+    def mycoffee_layout(self, family_key: str) -> RecipeFieldLayout | None:
+        """RecipeFieldLayout describing per-slot MyCoffee parameter
+        offsets, or ``None`` if the brand doesn't expose bulk MyCoffee
+        read / per-slot parameter sensors."""
+
+    def mycoffee_register(self, slot: int, offset: int) -> int | None:
+        """Absolute HW register for ``(slot, offset)`` in the
+        MyCoffee region, or ``None`` if the brand doesn't have a
+        contiguous MyCoffee register block."""
+
+    def is_chilled_selector(self, selector: int) -> bool:
+        """True if ``selector`` requires the chilled-brew flag byte
+        when building the HE payload. False for brands without chilled
+        recipes."""
 
 
 # ---------------------------------------------------------------------------

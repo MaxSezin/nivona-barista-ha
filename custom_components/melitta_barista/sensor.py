@@ -85,18 +85,28 @@ async def async_setup_entry(
     # capability-driven `BrandStatSensor` (`total_beverages`, id 213 on
     # 8000 family, id 215 on 1030, etc.) — no need to register the
     # Melitta-specific sensor at all.
-    if client.brand.brand_slug == "melitta":
+    # Capabilities may be None at setup time (resolved after BLE connect).
+    # For brands that don't use the legacy total-cups sensor, fall back
+    # to early family detection via the BLE scanner cache so generic
+    # capability-driven stat sensors can register without waiting.
+    caps = client.capabilities
+    if caps is None:
+        caps = resolve_caps_from_scanner(hass, entry.data.get(CONF_ADDRESS, ""), client.brand)
+
+    # Legacy Melitta total-cups sensor reads HR id 150 — capability-flagged
+    # because the register doesn't exist on other brands and would surface
+    # as "unknown".
+    if caps is not None and caps.uses_legacy_total_cups_sensor:
         entities.append(MelittaTotalCupsSensor(client, entry, name))
 
-    # Brand-capability-driven stat sensors (Nivona). Melitta has its own
-    # hand-tailored total_cups + per-recipe counters; generic stat sensors
-    # only register for non-Melitta brands with populated stats tables.
-    # client.capabilities may be None at setup time (resolved after BLE
-    # connect), so fall back to early family detection via BLE scanner cache.
-    caps = client.capabilities
-    if caps is None and client.brand.brand_slug != "melitta":
-        caps = resolve_caps_from_scanner(hass, entry.data.get(CONF_ADDRESS, ""), client.brand)
-    if caps is not None and caps.stats and client.brand.brand_slug != "melitta":
+    # Generic capability-driven stat sensors — only for brands that
+    # expose a stats table AND don't already have a hand-tailored
+    # total-cups sensor (Melitta).
+    if (
+        caps is not None
+        and caps.stats
+        and not caps.uses_legacy_total_cups_sensor
+    ):
         for descriptor in caps.stats:
             entities.append(BrandStatSensor(client, entry, name, descriptor))
 
@@ -107,15 +117,13 @@ async def async_setup_entry(
     # cache is populated by the post-connect bulk read in
     # ``BleRecipesMixin.read_mycoffee_slots``; sensors stay
     # ``unavailable`` until the first read completes.
-    if (
-        caps is not None
-        and client.brand.brand_slug == "nivona"
-        and caps.my_coffee_slots > 0
-    ):
-        from .brands.nivona import mycoffee_layout  # noqa: PLC0415
-        from ._ble_recipes import _MYCOFFEE_AMOUNT_PARAMS  # noqa: PLC0415
-        layout = mycoffee_layout(caps.family_key)
-        if layout is not None:
+    # MyCoffee bulk-read sensors — only register for brands whose profile
+    # advertises a MyCoffee layout (Nivona). Melitta's mycoffee_layout
+    # returns None and the block short-circuits.
+    if caps is not None:
+        layout = client.brand.mycoffee_layout(caps.family_key)
+        if layout is not None and caps.my_coffee_slots > 0:
+            from ._ble_recipes import _MYCOFFEE_AMOUNT_PARAMS  # noqa: PLC0415
             for slot in range(caps.my_coffee_slots):
                 for param_key in _MYCOFFEE_AMOUNT_PARAMS:
                     if getattr(layout, f"{param_key}_offset") is None:
