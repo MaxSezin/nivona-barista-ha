@@ -31,6 +31,20 @@ from .protocol import MachineRecipe, RecipeComponent
 _LOGGER = logging.getLogger("melitta_barista")
 
 
+# Param keys (and `<key>_offset` attribute names on RecipeFieldLayout)
+# that the MyCoffee bulk-read pulls per slot. Single source of truth
+# also used by `sensor.py` to decide which sensors to register.
+# Only "amount" params for now — the rest (strength / temperature /
+# enabled flag / profile / two_cups) will follow in later PRs once we
+# decide on entity shapes for them.
+_MYCOFFEE_AMOUNT_PARAMS: tuple[str, ...] = (
+    "coffee_amount",
+    "water_amount",
+    "milk_amount",
+    "milk_foam_amount",
+)
+
+
 class BleRecipesMixin(_MixinBase):
     """Mixin providing recipe, profile, and cup counter operations."""
 
@@ -467,7 +481,7 @@ class BleRecipesMixin(_MixinBase):
         return True
 
     async def read_mycoffee_slots(self) -> bool:
-        """Bulk-read the current MyCoffee slot params from the machine.
+        """Bulk-read MyCoffee slot params (4 amounts) from the machine.
 
         Nivona-only: Melitta has its own MyCoffee scheme that goes
         through DirectKey IDs and doesn't share these registers. For
@@ -477,9 +491,12 @@ class BleRecipesMixin(_MixinBase):
         sub-register; the layout comes from
         ``brand.mycoffee_layout(family_key)``.
 
-        Currently reads only the ``coffee_amount`` field per slot (the
-        most informative single number per slot). Result is cached on
-        the client at ``_my_coffee_slots`` and surfaced through the
+        Reads ``coffee_amount`` / ``water_amount`` / ``milk_amount`` /
+        ``milk_foam_amount`` per slot — only the params whose
+        ``<param>_offset`` is defined for the family layout (the 600
+        family for example has no ``milk_amount_offset``, only
+        ``milk_foam_amount_offset``). Result is cached on the client at
+        ``_my_coffee_slots`` and surfaced through the
         ``my_coffee_slots`` property. Returns ``True`` if at least the
         cache slot list was initialised (even if some individual HR
         reads failed), ``False`` if the call was skipped (wrong brand /
@@ -500,26 +517,36 @@ class BleRecipesMixin(_MixinBase):
         )  # noqa: PLC0415
 
         layout = mycoffee_layout(caps.family_key)
-        if layout is None or layout.coffee_amount_offset is None:
+        if layout is None:
             return False
+
+        # (param_key, layout-attr) pairs — single source of truth shared
+        # with sensor.py via `_MYCOFFEE_AMOUNT_PARAMS`.
+        param_specs = [
+            (param_key, getattr(layout, f"{param_key}_offset"))
+            for param_key in _MYCOFFEE_AMOUNT_PARAMS
+        ]
 
         slots: list[dict[str, int]] = [
             {} for _ in range(caps.my_coffee_slots)
         ]
         for slot in range(caps.my_coffee_slots):
-            register = mycoffee_register(slot, layout.coffee_amount_offset)
-            try:
-                val = await self._protocol.read_numerical(
-                    self._write_ble, register,
-                )
-            except (BleakError, OSError, asyncio.TimeoutError):
-                _LOGGER.debug(
-                    "MyCoffee read failed for slot %d (register %d)",
-                    slot, register,
-                )
-                continue
-            if val is not None:
-                slots[slot]["coffee_amount"] = val
+            for param_key, offset in param_specs:
+                if offset is None:
+                    continue
+                register = mycoffee_register(slot, offset)
+                try:
+                    val = await self._protocol.read_numerical(
+                        self._write_ble, register,
+                    )
+                except (BleakError, OSError, asyncio.TimeoutError):
+                    _LOGGER.debug(
+                        "MyCoffee read failed for slot %d %s (register %d)",
+                        slot, param_key, register,
+                    )
+                    continue
+                if val is not None:
+                    slots[slot][param_key] = val
 
         self._my_coffee_slots = slots
         _LOGGER.debug("MyCoffee slot cache populated: %s", slots)

@@ -100,19 +100,31 @@ async def async_setup_entry(
         for descriptor in caps.stats:
             entities.append(BrandStatSensor(client, entry, name, descriptor))
 
-    # MyCoffee slot amount sensors — Nivona only, one per slot for the
-    # ``coffee_amount`` field (the most informative single number per
-    # slot). Populated by the post-connect bulk read in
-    # ``BleRecipesMixin.read_mycoffee_slots``; sensors register
-    # eagerly regardless of slot-enabled state and read from the cache
-    # once it's filled.
+    # MyCoffee slot amount sensors — Nivona only. For each slot 0..N-1,
+    # register one sensor per amount param (coffee / water / milk /
+    # milk_foam) that the family's MyCoffee layout actually exposes
+    # (the 600 family for example has no ``milk_amount_offset``). The
+    # cache is populated by the post-connect bulk read in
+    # ``BleRecipesMixin.read_mycoffee_slots``; sensors stay
+    # ``unavailable`` until the first read completes.
     if (
         caps is not None
         and client.brand.brand_slug == "nivona"
         and caps.my_coffee_slots > 0
     ):
-        for slot in range(caps.my_coffee_slots):
-            entities.append(NivonaMyCoffeeAmountSensor(client, entry, name, slot))
+        from .brands.nivona import mycoffee_layout  # noqa: PLC0415
+        from ._ble_recipes import _MYCOFFEE_AMOUNT_PARAMS  # noqa: PLC0415
+        layout = mycoffee_layout(caps.family_key)
+        if layout is not None:
+            for slot in range(caps.my_coffee_slots):
+                for param_key in _MYCOFFEE_AMOUNT_PARAMS:
+                    if getattr(layout, f"{param_key}_offset") is None:
+                        continue
+                    entities.append(
+                        NivonaMyCoffeeAmountSensor(
+                            client, entry, name, slot, param_key,
+                        )
+                    )
 
     async_add_entities(entities)
 
@@ -447,20 +459,29 @@ class BrandStatSensor(_MelittaSensorBase):
 
 
 class NivonaMyCoffeeAmountSensor(_MelittaSensorBase):
-    """Per-slot MyCoffee coffee_amount sensor (Nivona only, read-only).
+    """Per-(slot, param) MyCoffee amount sensor for Nivona (read-only).
 
     Reads from the client's ``my_coffee_slots`` cache, which is filled
     once per connect by ``BleRecipesMixin.read_mycoffee_slots``. Stays
     ``unavailable`` until that first read completes.
 
-    First slice exposes only ``coffee_amount``; future PRs will expand
-    to other params (strength, milk amounts, enabled flag, etc.) and
-    add write support.
+    Currently exposes the four "amount" params per slot
+    (coffee / water / milk / milk_foam) — only those whose offset is
+    defined in the family's MyCoffee layout. Future PRs will add
+    strength / temperature / enabled flag and write support.
     """
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_native_unit_of_measurement = None  # raw byte value; vendor-specific scale
     _attr_icon = "mdi:cup-outline"
+
+    # Human-readable suffix per param.
+    _LABELS = {
+        "coffee_amount": "coffee amount",
+        "water_amount": "water amount",
+        "milk_amount": "milk amount",
+        "milk_foam_amount": "milk foam amount",
+    }
 
     def __init__(
         self,
@@ -468,16 +489,21 @@ class NivonaMyCoffeeAmountSensor(_MelittaSensorBase):
         entry: ConfigEntry,
         name: str,
         slot: int,
+        param_key: str,
     ) -> None:
         super().__init__(client, entry, name)
         self._slot = slot
-        self._attr_name = f"MyCoffee slot {slot + 1} coffee amount"
-        self._attr_translation_key = "mycoffee_amount"
+        self._param_key = param_key
+        label = self._LABELS.get(param_key, param_key.replace("_", " "))
+        self._attr_name = f"MyCoffee slot {slot + 1} {label}"
+        self._attr_translation_key = f"mycoffee_{param_key}"
         self._attr_translation_placeholders = {"slot": str(slot + 1)}
 
     @property
     def unique_id(self) -> str:
-        return f"{self._client.address}_mycoffee_slot_{self._slot}_coffee_amount"
+        return (
+            f"{self._client.address}_mycoffee_slot_{self._slot}_{self._param_key}"
+        )
 
     @property
     def available(self) -> bool:
@@ -486,7 +512,7 @@ class NivonaMyCoffeeAmountSensor(_MelittaSensorBase):
             self._client.connected
             and slots is not None
             and self._slot < len(slots)
-            and "coffee_amount" in slots[self._slot]
+            and self._param_key in slots[self._slot]
         )
 
     @property
@@ -494,7 +520,7 @@ class NivonaMyCoffeeAmountSensor(_MelittaSensorBase):
         slots = self._client.my_coffee_slots
         if slots is None or self._slot >= len(slots):
             return None
-        return slots[self._slot].get("coffee_amount")
+        return slots[self._slot].get(self._param_key)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

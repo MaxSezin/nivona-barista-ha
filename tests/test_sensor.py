@@ -216,7 +216,11 @@ async def test_total_cups_sensor_still_created_for_melitta(
 async def test_mycoffee_amount_sensors_registered_for_nivona_8000(
     hass: HomeAssistant, mock_entry: MockConfigEntry
 ) -> None:
-    """Nivona 8000 family with 9 MyCoffee slots → 9 amount sensors."""
+    """Nivona 8000 family — 9 slots × 4 amounts = 36 sensors.
+
+    Layout offsets for 8000 family include all four amounts
+    (coffee / water / milk / milk_foam), so all four register per slot.
+    """
     client = _mock_client()  # default mock fits — we override below
     client.brand.brand_slug = "nivona"
     client.brand.brand_name = "Nivona"
@@ -231,11 +235,46 @@ async def test_mycoffee_amount_sensors_registered_for_nivona_8000(
 
     mycoffee_sensors = [
         s for s in hass.states.async_all("sensor")
-        if "mycoffee_slot_" in s.entity_id and "_coffee_amount" in s.entity_id
+        if "mycoffee_slot_" in s.entity_id
     ]
-    assert len(mycoffee_sensors) == 9, (
-        f"Expected 9 mycoffee amount sensors for 8000 family; "
-        f"got {[s.entity_id for s in mycoffee_sensors]}"
+    assert len(mycoffee_sensors) == 36, (
+        f"Expected 36 mycoffee amount sensors for 8000 family (9 slots × 4 amounts); "
+        f"got {len(mycoffee_sensors)}: {[s.entity_id for s in mycoffee_sensors]}"
+    )
+    # Each amount param appears once per slot.
+    for param in ("coffee_amount", "water_amount", "milk_amount", "milk_foam_amount"):
+        per_param = [s for s in mycoffee_sensors if param in s.entity_id]
+        assert len(per_param) == 9, (
+            f"Expected 9 sensors for {param}; got {len(per_param)}"
+        )
+
+
+async def test_mycoffee_skips_params_missing_from_layout_600(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    """600 family has no `milk_amount_offset` in its MyCoffee layout —
+    the sensor must not register for that param on slots 0..N-1.
+    """
+    client = _mock_client()
+    client.brand.brand_slug = "nivona"
+    client.brand.brand_name = "Nivona"
+    client.brand.supported_extensions = frozenset()
+    caps = MagicMock()
+    caps.family_key = "600"
+    caps.my_coffee_slots = 1  # NICR 660 has 1 MyCoffee slot
+    caps.stats = ()
+    client.capabilities = caps
+    client.my_coffee_slots = None
+    await _setup_integration(hass, mock_entry, client)
+
+    sensor_ids = [s.entity_id for s in hass.states.async_all("sensor")]
+    # 600 layout has coffee_amount + water_amount + milk_foam_amount
+    # but NO milk_amount.
+    assert any("mycoffee_slot_1_coffee_amount" in eid for eid in sensor_ids), sensor_ids
+    assert any("mycoffee_slot_1_water_amount" in eid for eid in sensor_ids), sensor_ids
+    assert any("mycoffee_slot_1_milk_foam_amount" in eid for eid in sensor_ids), sensor_ids
+    assert not any("mycoffee_slot_1_milk_amount" in eid for eid in sensor_ids), (
+        f"milk_amount sensor must not exist for 600 family; saw: {sensor_ids}"
     )
 
 
