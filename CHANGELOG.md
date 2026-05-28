@@ -2,7 +2,7 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
-## [Unreleased] — 0.78.0
+## [0.78.0] — 2026-05-28
 
 ### Added
 
