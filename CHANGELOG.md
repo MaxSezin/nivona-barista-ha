@@ -12,12 +12,12 @@ All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
   Both available on families 600 / 700 / 79x / 900 / 900-light / 1030 / 1040. Hidden (entity stays unavailable) on NIVO 8000 — the vendor app doesn't expose factory-reset there either. Melitta brand is unaffected — these buttons don't register for `brand_slug == "melitta"`.
 - **Generic `execute_command(command_id)`** path on `EugsterProtocol` and `BleCommandsMixin` (as `execute_he_command`). Builds an 18-byte HE payload with `command_id` BE in `[0:2]`, sent under the existing `HE` opcode; the firmware distinguishes brew from "execute command" by payload shape.
-- **MyCoffee slot bulk read (Nivona)**. On every connect, after capability resolution, the client now reads each MyCoffee slot's `coffee_amount` register and caches the result on `MelittaBleClient.my_coffee_slots`. Per-slot `MyCoffee slot N coffee amount` diagnostic sensors expose the cached values; sensors stay `unavailable` until the first bulk read completes. Foundation for the broader MyCoffee CRUD work — write support and additional params will follow.
+- **MyCoffee slot bulk read (Nivona)**. On every connect, after capability resolution, the client now reads each MyCoffee slot's amount registers (`coffee_amount` / `water_amount` / `milk_amount` / `milk_foam_amount` — only those whose offset is defined in the family's MyCoffee layout, so 600 family for example skips `milk_amount`) and caches the result on `MelittaBleClient.my_coffee_slots`. Per-(slot, param) `MyCoffee slot N <param>` diagnostic sensors expose the cached values; sensors stay `unavailable` until the first bulk read completes. For NIVO 8000 with 9 slots that's 36 sensors (9 × 4 amounts); for NICR 1040 with 18 slots it's 72. All under the `DIAGNOSTIC` category. Foundation for the broader MyCoffee CRUD work — write support and code-style params (strength, temperature, enabled flag, profile) will follow in later releases.
 
 ### Tests
 - 8 new tests for the factory-reset path (`tests/test_protocol.py::TestExecuteCommand` + `tests/test_button.py`).
-- 5 new tests for MyCoffee bulk read (`tests/test_ble_client.py::TestReadMyCoffeeSlots`) + 2 sensor-registration tests (`tests/test_sensor.py`).
-- Full suite: 979 passed (was 964 on v0.77.1).
+- 6 new tests for MyCoffee bulk read (`tests/test_ble_client.py::TestReadMyCoffeeSlots`) + 3 sensor-registration tests (`tests/test_sensor.py`).
+- Full suite: 981 passed (was 964 on v0.77.1).
 
 ## [0.77.1] — 2026-05-28
 

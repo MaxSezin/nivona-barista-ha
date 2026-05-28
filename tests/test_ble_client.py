@@ -3487,46 +3487,7 @@ class TestReadMyCoffeeSlots:
         client._capabilities = None
         assert await client.read_mycoffee_slots() is False
 
-    async def test_reads_coffee_amount_for_each_slot(self, mock_bleak_client):
-        """For a family with N slots, calls read_numerical N times at
-        the correct coffee_amount register and caches each value.
-        """
-        from custom_components.melitta_barista.brands.nivona import (
-            MY_COFFEE_BASE_REGISTER, MY_COFFEE_SLOT_STRIDE, NivonaProfile,
-            mycoffee_layout, mycoffee_register,
-        )
-        client = _make_connected_client(mock_bleak_client, brand=NivonaProfile())
-        # 8000 family has 9 MyCoffee slots and a `coffee_amount_offset = 8`.
-        client._capabilities = NivonaProfile().capabilities_for_model(
-            "NIVONA-8101000000-----",
-        )
-        assert client._capabilities is not None
-        assert client._capabilities.my_coffee_slots == 9
-        layout = mycoffee_layout(client._capabilities.family_key)
-        assert layout is not None
-        assert layout.coffee_amount_offset == 8
-
-        # Each slot returns a distinct value so we can verify the
-        # register cycle visited every slot exactly once.
-        slots_seen: list[int] = []
-
-        async def fake_read(_write, register: int):
-            # Recover slot index from register layout.
-            slot = (register - MY_COFFEE_BASE_REGISTER) // MY_COFFEE_SLOT_STRIDE
-            slots_seen.append(slot)
-            return 100 + slot  # 100, 101, 102, ...
-
-        client._protocol.read_numerical = fake_read
-
-        result = await client.read_mycoffee_slots()
-
-        assert result is True
-        assert sorted(slots_seen) == list(range(9))
-        cached = client.my_coffee_slots
-        assert cached is not None
-        assert len(cached) == 9
-        for slot in range(9):
-            assert cached[slot]["coffee_amount"] == 100 + slot
+    
 
     async def test_partial_failures_swallowed(self, mock_bleak_client):
         """One slot's HR read failing must not abort the rest."""
@@ -3550,3 +3511,71 @@ class TestReadMyCoffeeSlots:
         # Other slots still cached
         for slot in (0, 1, 2, 4, 5, 6, 7, 8):
             assert cached[slot]["coffee_amount"] == 42
+
+
+    async def test_reads_all_four_amounts_per_slot(self, mock_bleak_client):
+        """8000 family layout exposes coffee/water/milk/milk_foam amounts.
+
+        Bulk read should fetch all four per slot, indexed by the
+        param key. Offsets used: 8 (coffee), 9 (water), 10 (milk),
+        11 (milk_foam).
+        """
+        from custom_components.melitta_barista.brands.nivona import (
+            MY_COFFEE_BASE_REGISTER, MY_COFFEE_SLOT_STRIDE, NivonaProfile,
+        )
+        client = _make_connected_client(mock_bleak_client, brand=NivonaProfile())
+        client._capabilities = NivonaProfile().capabilities_for_model(
+            "NIVONA-8101000000-----",
+        )
+        assert client._capabilities.my_coffee_slots == 9
+
+        # Encode (slot, offset) → distinct value so we can verify the
+        # cycle visited every (slot, param) pair exactly once.
+        async def fake_read(_write, register: int):
+            slot = (register - MY_COFFEE_BASE_REGISTER) // MY_COFFEE_SLOT_STRIDE
+            offset = (register - MY_COFFEE_BASE_REGISTER) % MY_COFFEE_SLOT_STRIDE
+            return slot * 100 + offset
+
+        client._protocol.read_numerical = fake_read
+
+        result = await client.read_mycoffee_slots()
+        assert result is True
+
+        cached = client.my_coffee_slots
+        assert cached is not None
+        assert len(cached) == 9
+        for slot in range(9):
+            # Each amount has a distinct register offset on 8000 family
+            # (8, 9, 10, 11). The fake_read encoding mirrors that.
+            assert cached[slot]["coffee_amount"] == slot * 100 + 8
+            assert cached[slot]["water_amount"] == slot * 100 + 9
+            assert cached[slot]["milk_amount"] == slot * 100 + 10
+            assert cached[slot]["milk_foam_amount"] == slot * 100 + 11
+
+    async def test_skips_params_missing_from_layout(self, mock_bleak_client):
+        """600 family has milk_foam_amount but no milk_amount offset —
+        the bulk reader must not invent registers that the layout
+        doesn't declare.
+        """
+        from custom_components.melitta_barista.brands.nivona import NivonaProfile
+        client = _make_connected_client(mock_bleak_client, brand=NivonaProfile())
+        # NICR 660 → family "600". 600 layout has no milk_amount_offset
+        # (only milk_foam_amount_offset).
+        client._capabilities = NivonaProfile().capabilities_for_model(
+            "NIVONA-6605730710-----",
+        )
+        assert client._capabilities is not None
+        assert client._capabilities.family_key == "600"
+
+        async def echo(_write, register: int):
+            return register  # any non-None value
+
+        client._protocol.read_numerical = echo
+        await client.read_mycoffee_slots()
+        cached = client.my_coffee_slots
+        assert cached is not None
+        assert "milk_amount" not in cached[0], (
+            "milk_amount must not be read on 600 family — layout has no offset"
+        )
+        # milk_foam_amount IS in 600 layout (offset 11), so it must be present.
+        assert "milk_foam_amount" in cached[0]
