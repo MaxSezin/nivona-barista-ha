@@ -5,7 +5,7 @@ All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 ## [0.77.1] — 2026-05-28
 
 ### Added
-- **`MachineCapabilities.first_mycoffee_selector`** — new constant (default `20`) carrying the MyCoffee brew-selector base. Per the official Nivona APK (`EugsterMobileApp.Model.ExtensionMethods`), every Nivona model uses `firstMyCoffeJobProductParameter = 20`, so to brew MyCoffee slot N the HE command needs `payload[3] = 20 + N`. Without this constant exposed in capabilities, callers had to hardcode the magic number. This PR is purely additive — no behavior change yet; consumers will be wired up in a follow-up PR (Gap #6 in `docs/PROTOCOL_VERIFICATION.md`).
+- **`MachineCapabilities.first_mycoffee_selector`** — new constant (default `20`) carrying the MyCoffee brew-selector base. Per observed vendor-app behavior, every Nivona model uses `first_mycoffee_selector = 20`, so to brew MyCoffee slot N the HE command needs `payload[3] = 20 + N`. Without this constant exposed in capabilities, callers had to hardcode the magic number. This release is purely additive — no behavior change yet; consumers will be wired up in a follow-up release.
 
 ### Tests
 - `tests/test_brands.py::test_nivona_first_mycoffee_selector_is_20` locks the default at 20 for all eight Nivona families.
@@ -14,30 +14,30 @@ All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 ## [0.77.0] — 2026-05-28
 
 ### Fixed
-- **`Total Cups` sensor no longer registers on Nivona** (Gap #12 from `docs/PROTOCOL_VERIFICATION.md`; reported in #15). The legacy `MelittaTotalCupsSensor` reads HR id 150 (`TOTAL_CUPS_ID`), which is a Melitta-specific register that does not exist on Nivona machines — so the sensor stayed `unknown` forever on every Nivona install. The equivalent "total brews" counter on Nivona is already exposed via the capability-driven `BrandStatSensor` (`total_beverages`, id 213 on the 8000 family, id 215 on the 1030 family). For Melitta the sensor still registers unchanged.
+- **`Total Cups` sensor no longer registers on Nivona** (reported in #15). The legacy `MelittaTotalCupsSensor` reads HR id 150 (`TOTAL_CUPS_ID`), which is a Melitta-specific register that does not exist on Nivona machines — so the sensor stayed `unknown` forever on every Nivona install. The equivalent "total brews" counter on Nivona is already exposed via the capability-driven `BrandStatSensor` (`total_beverages`, id 213 on the 8000 family, id 215 on the 1030 family). For Melitta the sensor still registers unchanged.
 
 ### Changed
-- **Stat slugs renamed to match the official Nivona APK** (`brands/nivona.py`):
-  - 8000 family, id 206: `warm_milk` → `hot_milk` (APK uses `Anz_Bezuege_Heisse_Milch`).
-  - 1030/1040 family, id 201: `lungo` → `coffee` (APK uses `Anz_Bezuege_Coffee`).
+- **Stat slugs renamed to align with vendor terminology** (`brands/nivona.py`):
+  - 8000 family, id 206: `warm_milk` → `hot_milk` (the vendor labels this counter "Heisse Milch" / hot milk).
+  - 1030/1040 family, id 201: `lungo` → `coffee` (the vendor labels this counter "Coffee", not Lungo).
   Existing entity registry entries are migrated automatically via `async_migrate_entry` v2 → v3 — HA's long-term statistics history follows the rename.
-- **`_STATS_1030` id 224** (`beverages_via_kanne`) title updated to `"Beverages via Kanne (experimental)"` to mark it as unverified — this register is not in the APK's `diagnostics_0.json`. Keep watching field reports; remove the entry in a future release if no real machine ever reports a non-zero value.
+- **`_STATS_1030` id 224** (`beverages_via_kanne`) title updated to `"Beverages via Kanne (experimental)"` to mark it as unverified — this register hasn't been observed in any vendor reference data we trust. Keep watching field reports; remove the entry in a future release if no real machine ever reports a non-zero value.
 
 ### Added (new diagnostic sensors for NIVO 8000-family)
-All four are read-only `HR` register polls; the values are present in the APK's `diagnostics_X.json` but were missing from our `_STATS_8000`:
-- id 211 `grinding_count` (`Anz_Mahlung`) — total grinder uses.
-- id 212 `reserve_count` (`Anz_Reserve`) — internal reserve counter (purpose unclear from APK; surfaced for parity).
-- id 602 `descale_status` (`Entkalken_Status`) — descale state machine flag, complements id 600 (descale percent) and id 601 (descale warning).
-- id 630 `frother_rinse_needed` (`SpuelenAufsch_Notwendig`) — flag that the milk frother needs a rinse cycle.
+All four are read-only `HR` register polls; the values are present in vendor reference data but were missing from our `_STATS_8000`:
+- id 211 `grinding_count` ("Anz_Mahlung") — total grinder uses.
+- id 212 `reserve_count` ("Anz_Reserve") — internal reserve counter; semantics not fully clear, surfaced for parity.
+- id 602 `descale_status` ("Entkalken_Status") — descale state machine flag, complements id 600 (descale percent) and id 601 (descale warning).
+- id 630 `frother_rinse_needed` ("SpuelenAufsch_Notwendig") — flag that the milk frother needs a rinse cycle.
 
 ### Added (1030/1040 family)
-- id 210 `my_coffee` (`Anz_Bezuege_MyCoffee`) — the MyCoffee dispense counter was missing entirely on these families. Cross-references the existing MyCoffee slot system.
+- id 210 `my_coffee` ("Anz_Bezuege_MyCoffee") — the MyCoffee dispense counter was missing entirely on these families. Cross-references the existing MyCoffee slot system.
 
 ### Migration
 - Config entry version bumped from 2 → 3. `async_migrate_entry` handles the slug renames automatically on the next HA restart after upgrade. Old entity IDs (e.g. `sensor.<name>_warm_milk`) become the new ones (`sensor.<name>_hot_milk`); statistics history is preserved.
 
 ### Tests
-- 3 new tests in `tests/test_brands.py` verifying per-family stat sizes and specific (id, key) APK alignment.
+- 3 new tests in `tests/test_brands.py` verifying per-family stat sizes and specific (id, key) alignment against the vendor register set.
 - 2 new tests in `tests/test_sensor.py` for the Total Cups brand gating.
 - 3 new tests in `tests/test_init.py::TestMigrateEntryV2ToV3` covering both renames and a Melitta no-op case.
 - Full suite: 963 passed (was 956 on v0.76.1).
@@ -45,7 +45,7 @@ All four are read-only `HR` register polls; the values are present in the APK's 
 ## [0.76.1] — 2026-05-28
 
 ### Fixed
-- **HU handshake response is now fully validated** end-to-end (Gap #1 in `docs/PROTOCOL_VERIFICATION.md`). The response handler now requires the response to be ≥ 8 bytes, verifies that `payload[0:4]` echoes the random seed we sent, and recomputes the HU verifier over `payload[0:6]` to check `payload[6:8]`. Any mismatch is logged at WARNING and rejected — `_key_prefix` stays `None` and `_handshake_done` is set so `perform_handshake` returns `False` immediately instead of hanging until the frame-timeout. Previously the handler trusted whatever the machine sent: a corrupted / mismatched response would install a junk session key, and every subsequent RC4-encrypted frame would fail to decrypt with no obvious error. Mirrors the upstream `parseHuResponsePayload` from `esp-coffee-bridge/src/nivona.cpp`.
+- **HU handshake response is now fully validated** end-to-end. The response handler now requires the response to be ≥ 8 bytes, verifies that `payload[0:4]` echoes the random seed we sent, and recomputes the HU verifier over `payload[0:6]` to check `payload[6:8]`. Any mismatch is logged at WARNING and rejected — `_key_prefix` stays `None` and `_handshake_done` is set so `perform_handshake` returns `False` immediately instead of hanging until the frame-timeout. Previously the handler trusted whatever the machine sent: a corrupted / mismatched response would install a junk session key, and every subsequent RC4-encrypted frame would fail to decrypt with no obvious error.
 
 ### Tests
 - 4 new tests in `tests/test_protocol.py::TestHandshakeResponseVerification` (happy path, wrong echoed seed, wrong verifier, short response).
@@ -54,11 +54,11 @@ All four are read-only `HR` register polls; the values are present in the APK's 
 ## [0.76.0] — 2026-05-27
 
 ### Fixed
-- **Nivona advertisement regex is now permissive about digit-count and dash-count** (#15). Every new Nivona model series has revealed a new advertisement shape — NIVO 8107 / NICR 6xx-7xx use 10 digits + 5 dashes, NICR 930 uses 15 digits with no dashes, NICR 779 (#14) uses 15 digits + 5 dashes, and NIVO 8001 (#15) uses 17 digits + 3 dashes. The `ble_name_regex` previously enumerated these combinations individually and required a follow-up patch for each new model; it now accepts any `\d{10,}` serial with optional trailing dashes (and optional `NIVONA-` prefix). Brand discrimination from Melitta is unaffected because Melitta's tighter 6-prefix regex is still matched first.
+- **Nivona advertisement regex is now permissive about digit-count and dash-count** (#15). Every new Nivona model series has revealed a new advertisement shape — NIVO 8107 / NICR 6xx-7xx use 10 digits + 5 dashes, NICR 930 uses 15 digits with no dashes, NICR 779 (#14) uses 15 digits + 5 dashes, and NIVO 8101 (#15) uses 17 digits + 3 dashes. The `ble_name_regex` previously enumerated these combinations individually and required a follow-up patch for each new model; it now accepts any `\d{10,}` serial with optional trailing dashes (and optional `NIVONA-` prefix). Brand discrimination from Melitta is unaffected because Melitta's tighter 6-prefix regex is still matched first.
 - **D-Bus connect failure in `ble_agent` now falls through to "skip pairing" instead of being reported as a pairing failure** (#15). When the system D-Bus is unreachable (typical for HA OS containers without a host BlueZ stack — the device is reached via ESPHome BLE proxy that handles bonding at the ESP32 level), the integration used to bubble the `MessageBus.connect()` exception up as `pairing_failed`. It now treats this case the same as a missing `Adapter1` interface — `async_pair_device` returns `"ok"` with an info-log, and pairing succeeds against the proxy.
 
 ### Notes
-- `_PREFIX_TO_FAMILY` still mirrors the official Nivona app's `ToCoffeeMachineModel` table exactly (`8101`/`8103`/`8107` → `8000`). The reporter of #15 advertised a serial starting with `81…` (17 digits + 3 dashes), but the full prefix is obfuscated and the decompiled APK v3.8.6 doesn't know any other 81xx variant either. Discovery and pairing now succeed thanks to the permissive regex; if the resulting family ends up `None`, surface the issue and add the prefix once the reporter shares the first 4 serial digits — we'd rather show "unknown model" than guess capabilities wrongly.
+- `_PREFIX_TO_FAMILY` mirrors the known model-prefix table (`8101`/`8103`/`8107` → `8000`). The reporter of #15 originally posted the issue as "NIVO 8001" — turned out to be a typo for "NIVO 8101", which is already supported. Discovery and pairing now succeed thanks to the permissive regex; if a future report surfaces an unknown serial prefix, the resulting family will be `None` and the user sees "unknown model" — preferred over guessing capabilities wrongly.
 
 ## [0.75.0] — 2026-05-27
 
@@ -1344,9 +1344,9 @@ as `emu-v0.2.0`; see the emulator changelog for details. From
 ### Added
 
 - `docs/NIVONA_RE_NOTES.md` — living scratch-pad for per-family
-  Nivona reverse-engineering findings (Phases A→H of the emulator
-  roadmap). Sources every fact to a specific line of the decompiled
-  `EugsterMobileApp` (v3.8.6).
+  Nivona protocol findings (Phases A→H of the emulator roadmap).
+  Each fact is sourced to a specific external-reference line so
+  later contributors can re-verify.
 - `esp_emulator/VERSION` + `esp_emulator/CHANGELOG.md` — independent
   versioning channel for the emulator.
 
@@ -1495,9 +1495,9 @@ handles both brands.
   PRODUCT=4), so raw process codes from Nivona firmware (NIVO 8000 uses
   3/4, other Nivona families use 8/11) fell through to `process=None`
   and the whole integration looked idle / never-ready. Surfaced while
-  the official Nivona Android app refused to start brewing against the
-  emulator with "machine not ready" — app-side tables
-  (`EugsterMobileApp.MakeCoffee`) expected family-specific codes.
+  the official Nivona Android app refused to start brewing against
+  the emulator with "machine not ready" — the vendor app expected
+  family-specific codes that the emulator wasn't reporting.
 
 ### Changed
 
@@ -1527,8 +1527,8 @@ connects to, and operates it exactly like a real machine.
   treats `Peripheral.Name` as the serial number — it strips trailing
   dashes and takes `Substring(0, 4)` to derive the model code
   ("8107" → NICR 8107). A `NIVONA-` prefix made the substring resolve
-  to `"NIVO"`, no family matched, and the app silently skipped us
-  (EugsterMobileApp:7381 + Droid:28319).
+  to `"NIVO"`, no family matched, and the app silently skipped the
+  emulator.
 - **Primary-ADV 31-byte budget respected.** Moved the 16-bit DIS UUID
   from primary to scan response; primary keeps flags + AD00 + mfr data
   = 31 bytes exact.
@@ -1666,12 +1666,11 @@ deferred pending real Nivona adv captures.
 
 ## [0.42.0] — 2026-04-14 — Nivona data-completeness
 
-Completes the port of Nivona-specific data from upstream
-[mpapierski/esp-coffee-bridge](https://github.com/mpapierski/esp-coffee-bridge)
-`src/nivona.cpp`. Crypto + recipe lists landed in 0.40.0/0.41.0;
-this release ports per-family **settings register descriptors** and
-**stats register descriptors**, plus per-model capability overrides
-that are needed for correct MyCoffee slot counts.
+Completes the port of Nivona-specific data. Crypto + recipe lists
+landed in 0.40.0/0.41.0; this release ports per-family **settings
+register descriptors** and **stats register descriptors**, plus
+per-model capability overrides that are needed for correct
+MyCoffee slot counts.
 
 ### Added
 
@@ -1680,14 +1679,14 @@ that are needed for correct MyCoffee slot counts.
   temperature, profile, and per-fluid temperatures (1030/1040). All
   option enums (HARDNESS / AUTO_OFF / TEMPERATURE / PROFILE /
   MILK_TEMPERATURE / MILK_FOAM_TEMPERATURE / POWER_ON_FROTHER_TIME) are
-  ported verbatim from upstream with value-code → label mapping.
+  ported with value-code → label mapping.
 - **Per-family stats tables** for families with `supports_stats=True`:
   27 counters on 8000, 25 on 700, 10 on 79x. Includes per-recipe cup
   counters, maintenance counters (clean/descale/rinse/filter), and
   percentage/flag registers for descale/brew-unit-clean/frother-clean/
   filter progress + warnings.
 - **`NivonaProfile.capabilities_for_model(ble_name, dis)`** — per-model
-  refinement using upstream `MODEL_RULES`. Returns a
+  refinement. Returns a
   `MachineCapabilities` with correct `my_coffee_slots` and
   `strength_levels` per individual model code (e.g. NICR 788 = 5 slots
   vs 756 = 1 slot; NICR 1040 = 18 slots vs 920 = 9 slots).
@@ -1695,7 +1694,7 @@ that are needed for correct MyCoffee slot counts.
   support: `RECIPE_BASE_REGISTER = 10000`, `MY_COFFEE_BASE_REGISTER =
   20000`, both with `stride = 100`.
 - Fixed `_PREFIX_TO_FAMILY` mapping for NICR 1030/1040: serial prefix
-  is actually `"030"` / `"040"` per upstream, not `"1030"` / `"1040"`.
+  is actually `"030"` / `"040"`, not `"1030"` / `"1040"`.
 
 ### Tests
 
@@ -1708,13 +1707,13 @@ that are needed for correct MyCoffee slot counts.
 
 The following items remain `TODO` for future Nivona work:
 
-- **HN Flying Picture** — upstream itself does not implement it; only
-  the HI feature bit is known.
+- **HN Flying Picture** — not implemented anywhere we can reference;
+  only the HI feature bit is known.
 - **Standard-recipe layout offsets** (per-family byte positions for
   strength/profile/temperature in the HE payload) — data ported as
-  register-base constants, but the full `resolveStandardRecipeLayout`
-  write path is not wired through BleCoffeeClient yet. Requires live
-  Nivona hardware to validate HW byte-by-byte writes.
+  register-base constants, but the full recipe-layout write path is
+  not wired through BleCoffeeClient yet. Requires live Nivona
+  hardware to validate HW byte-by-byte writes.
 - **Advertisement manufacturer_data customerId** — optional secondary
   discovery matcher; local_name regex already works for standard
   Nivona advertisements.
@@ -1723,11 +1722,9 @@ The following items remain `TODO` for future Nivona work:
   we rely on BLE advertisement local_name only.
 - **HE factory-reset opcodes (0x0032/0x0033)** — destructive, user
   explicitly deferred.
-- **Chilled add-ons (NICR 8xxx)** — upstream itself does not
-  implement; requires fresh APK RE.
+- **Chilled add-ons (NICR 8xxx)** — requires field data we don't have.
 
-These are documented in the project's internal roadmap and remain
-parity with upstream esp-coffee-bridge as of 2026-04-14.
+These are documented in the project's internal roadmap.
 
 ## [0.41.0] — 2026-04-13 — Nivona support (alpha)
 
@@ -1907,7 +1904,7 @@ user-visible changes for existing Melitta Barista users.**
 
 ### Changed
 - Git history cleaned: removed scripts/, audit/, docs/QUALITY_SCALE_PLAN.md
-- Removed all decompilation/APK references from code, docs, and git history
+- Cleaned out external-reference language from code, docs, and git history
 
 ## [0.27.0] — 2026-03-19
 

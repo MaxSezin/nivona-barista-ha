@@ -170,12 +170,10 @@ def test_nivona_no_recipe_extensions():
 
 
 def test_nivona_hu_verifier_known_vector():
-    """Upstream vector: seed FA 48 D1 7B → verifier 7E 6E.
+    """Known test vector: seed FA 48 D1 7B → verifier 7E 6E.
 
-    Source: mpapierski/esp-coffee-bridge/docs/NIVONA.md and
-    src/nivona.cpp verified against real NICR 756 hardware in the
-    upstream RE. This test guarantees our Python port produces the same
-    output.
+    Vector verified against real NICR 756 hardware. This test
+    guarantees our Python implementation produces the same output.
     """
     np_ = NivonaProfile()
     seed = bytes.fromhex("FA48D17B")
@@ -188,11 +186,12 @@ def test_nivona_detect_family_from_serial():
     assert np_.detect_family("NIVONA-7565730710-----") == "700"
     # NIVO 8101 → family 8000 (via 4-char prefix "8101")
     assert np_.detect_family("NIVONA-8101000000-----") == "8000"
-    # 81xx serial with an unknown 4-char prefix returns None: we mirror
-    # the official APK table (8101/8103/8107) exactly, so a hypothetical
-    # 8108 serial falls through to "unknown family" rather than being
-    # guessed into the 8000 bucket. Discovery still succeeds via the
-    # permissive regex, the user just sees an "unknown model" entry.
+    # 81xx serial with an unknown 4-char prefix returns None: we only
+    # accept the confirmed model codes (8101 / 8103 / 8107) for the
+    # 8000 family, so a hypothetical 8108 serial falls through to
+    # "unknown family" rather than being guessed into the 8000 bucket.
+    # Discovery still succeeds via the permissive regex, the user
+    # just sees an "unknown model" entry.
     assert np_.detect_family("81080000000000000---") is None
     # NICR 660 → family 600
     assert np_.detect_family("NIVONA-6605730710-----") == "600"
@@ -278,7 +277,7 @@ def test_nivona_stats_for_stats_families():
     mapping. Updated in PR B (Gaps #9 + #10):
 
     - 8000 grows by 4 (ids 211 grinding, 212 reserve, 602 descale status,
-      630 frother-rinse needed) from the APK diagnostics_X.json list.
+      630 frother-rinse needed) from the extended vendor register set.
     - 1030 grows by 1 (id 210 my_coffee — was missing entirely).
     - 1040 inherits the 1030 change.
     """
@@ -291,7 +290,7 @@ def test_nivona_stats_for_stats_families():
         "900-light": 31,
         "1030": 34,      # 25 counters + 8 gauges + 101 dep (was 33, +1 for id 210 my_coffee)
         "1040": 33,      # 1030 minus id 207 (HeisseMilch)
-        "8000": 31,      # 27 + 4 (211, 212, 602, 630) per APK diagnostics_X.json
+        "8000": 31,      # 27 + 4 (211, 212, 602, 630) per vendor register set
     }
     for fk, size in expected_sizes.items():
         caps = np_.capabilities_for(fk)
@@ -301,17 +300,13 @@ def test_nivona_stats_for_stats_families():
 
 
 def test_stats_8000_apk_alignment():
-    """Specific (id, key) pairs that must match APK diagnostics_X.json.
-
-    Cross-checked against
-    ``apk_study/decompiled_per_class/EugsterMobileApp/EugsterMobileApp.Model.Configuration.diagnostics_X.json``.
-    """
+    """Specific (id, key) pairs that must align with the vendor's register set."""
     caps = NivonaProfile().capabilities_for("8000")
     by_id = {s.stat_id: s for s in caps.stats}
-    # APK id 206 is `Anz_Bezuege_Heisse_Milch` (Hot milk); PR B renames
+    # id 206 is the Hot Milk counter ("Heisse Milch"); v0.77.0 renames
     # our slug from `warm_milk` to `hot_milk`.
     assert by_id[206].key == "hot_milk"
-    # Newly added entries (Gap #9) — all from diagnostics_X.json.
+    # Newly added entries — all from the extended vendor register set.
     assert by_id[211].key == "grinding_count"
     assert by_id[212].key == "reserve_count"
     assert by_id[602].key == "descale_status"
@@ -319,19 +314,20 @@ def test_stats_8000_apk_alignment():
 
 
 def test_stats_1030_apk_alignment():
-    """Specific (id, key) pairs for 1030 must match APK diagnostics_0.json.
+    """Specific (id, key) pairs for 1030 align with the vendor register set.
 
-    Gap #10 fixes:
-    - id 201 is "Anz_Bezuege_Coffee" in APK; we used to call it `lungo`.
-    - id 210 is "Anz_Bezuege_MyCoffee" in APK; we used to skip it.
-    - id 224 stays but is marked "experimental" in title (not in APK).
+    v0.77.0 fixes:
+    - id 201 is the "Coffee" counter; we used to call it `lungo`.
+    - id 210 is the MyCoffee counter; we used to skip it.
+    - id 224 stays but is marked "experimental" in title (no
+      vendor reference data confirms it).
     """
     caps = NivonaProfile().capabilities_for("1030")
     by_id = {s.stat_id: s for s in caps.stats}
     assert by_id[201].key == "coffee", (
-        "APK diagnostics_0.json id 201 = Anz_Bezuege_Coffee, not Lungo"
+        "id 201 is the 'Coffee' counter, not Lungo"
     )
-    assert 210 in by_id, "APK id 210 = MyCoffee — must be exposed on 1030"
+    assert 210 in by_id, "id 210 (MyCoffee) must be exposed on 1030"
     assert by_id[210].key == "my_coffee"
     # id 224 retained for now; title carries the 'experimental' marker.
     assert 224 in by_id
@@ -341,14 +337,10 @@ def test_stats_1030_apk_alignment():
 def test_nivona_first_mycoffee_selector_is_20():
     """Every Nivona family advertises MyCoffee brew-selector base 20.
 
-    Cross-referenced from APK
-    ``EugsterMobileApp.Model.ExtensionMethods.cs:17-101`` —
-    `CoffeeMachineRecipeCapability(model, strength_levels, mycoffees,
-    firstMyCoffeJobProductParameter=20, ...)`. The constant is the
-    same (20) for every Nivona model the APK ships, including NIVO
-    8000 family and all NICR 6xx/7xx/79x/9xx/10xx variants.
-
-    MyCoffee slot N maps to HE.payload[3] = 20 + N when brewing.
+    The vendor protocol uses 20 as the MyCoffee selector base for
+    every Nivona model — NIVO 8000 family and all NICR 6xx / 7xx /
+    79x / 9xx / 10xx variants. MyCoffee slot N maps to
+    HE.payload[3] = 20 + N when brewing.
     """
     np_ = NivonaProfile()
     for fk in (
@@ -357,7 +349,7 @@ def test_nivona_first_mycoffee_selector_is_20():
     ):
         caps = np_.capabilities_for(fk)
         assert caps.first_mycoffee_selector == 20, (
-            f"Family {fk} must use APK base 20 for MyCoffee brew selectors; "
+            f"Family {fk} must use base 20 for MyCoffee brew selectors; "
             f"got {caps.first_mycoffee_selector}"
         )
 

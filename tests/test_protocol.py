@@ -354,7 +354,7 @@ class TestStartProcessNivonaPayload:
 
 
 class TestHandshakeResponseVerification:
-    """HU response validation per upstream `parseHuResponsePayload`.
+    """HU response validation against the protocol's wire contract.
 
     Wire layout (8 bytes after RC4 decrypt):
         [0..4)  echoed seed — must equal the challenge we sent

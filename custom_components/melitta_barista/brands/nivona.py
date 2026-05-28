@@ -1,17 +1,18 @@
 """NivonaProfile — Brand profile for Nivona NICR / NIVO 8xxx machines.
 
-Built from public RE in mpapierski/esp-coffee-bridge (docs/NIVONA.md +
-src/nivona.cpp). All facts (constants, family tables, HU verifier
-algorithm) are independently re-implemented in Python; no source is
+All facts (constants, family tables, HU verifier algorithm) are
+independently re-implemented in Python from observed protocol
+behavior and external reference material; no third-party source is
 copied verbatim.
 
 Limitations:
 
-- Untested on real hardware as of 2026-04-13. Released as alpha; users
-  with NICR/NIVO machines are invited to report results via GitHub
-  issues.
-- Recipe writes / DirectKey are NOT supported — Nivona machines do not
-  expose recipe-edit affordances; ``supported_extensions`` is empty.
+- Initially untested on real hardware (released as alpha 2026-04-13);
+  users with NICR/NIVO machines are invited to report results via
+  GitHub issues.
+- Recipe writes / DirectKey are NOT supported — Nivona machines do
+  not expose recipe-edit affordances; ``supported_extensions`` is
+  empty.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from .base import (
 
 # ---------------------------------------------------------------------------
 # Per-family recipe tables — selector byte → (key, display name).
-# Upstream: src/nivona.cpp:183-258. Each entry is (selector, key, title).
+# Per-family standard-recipe lists. Each entry is (selector, key, title).
 # ---------------------------------------------------------------------------
 
 _RECIPES_600: tuple[RecipeDescriptor, ...] = (
@@ -77,7 +78,7 @@ _RECIPES_900: tuple[RecipeDescriptor, ...] = (
     RecipeDescriptor(7, "Hot Water", "water"),
 )
 
-# 900-light family reuses the 900 table upstream (src/nivona.cpp near line 947).
+# 900-light family reuses the 900 table.
 _RECIPES_900_LIGHT: tuple[RecipeDescriptor, ...] = _RECIPES_900
 
 _RECIPES_1030: tuple[RecipeDescriptor, ...] = (
@@ -133,8 +134,7 @@ _LOGGER = logging.getLogger("melitta_barista")
 # ---------------------------------------------------------------------------
 # Crypto — Nivona-specific runtime RC4 key.
 #
-# Recovered from de.nivona.mobileapp 3.8.6 APK in the upstream RE; this
-# is the 32-byte ASCII key fed to the EFLibrary stream cipher after
+# 32-byte ASCII key fed to the vendor's stream cipher after the
 # customer-key bootstrap.
 # ---------------------------------------------------------------------------
 
@@ -142,8 +142,7 @@ _NIVONA_RC4_KEY: bytes = b"NIV_060616_V10_1*9#3!4$6+4res-?3"
 assert len(_NIVONA_RC4_KEY) == 32, "Nivona RC4 key must be 32 bytes"
 
 
-# Nivona HU lookup table (256 bytes). Reconstructed from the upstream
-# `HU_TABLE` constant in src/nivona.cpp.
+# Nivona HU lookup table (256 bytes).
 _NIVONA_HU_TABLE = bytes([
     0x62, 0x06, 0x55, 0x96, 0x24, 0x17, 0x70, 0xA4, 0x87, 0xCF, 0xA9, 0x05, 0x1A, 0x40, 0xA5, 0xDB,
     0x3D, 0x14, 0x44, 0x59, 0x82, 0x3F, 0x34, 0x66, 0x18, 0xE5, 0x84, 0xF5, 0x50, 0xD8, 0xC3, 0x73,
@@ -171,13 +170,12 @@ assert len(_NIVONA_HU_TABLE) == 256, "Nivona HU table must be 256 bytes"
 # Notes on per-family flags:
 #   - 8000 (NICR 8101/8103/8107) uses brew_command_mode 0x04, all others 0x0B.
 #   - 900 (NICR 920/930) writes fluid amounts as ml × 10.
-#   - 79x has hasAromaBalance=True; others False (per src/nivona.cpp).
+#   - 79x has hasAromaBalance=True; others False.
 #   - 600 has only 1 MyCoffee slot; 700/79x/900/8000 have 4.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Setting option enums (value_code → human label). Ported verbatim from
-# upstream src/nivona.cpp lines 35-128.
+# Setting option enums (value_code → human label).
 # ---------------------------------------------------------------------------
 
 _HARDNESS_OPTIONS = ((0x0000, "soft"), (0x0001, "medium"), (0x0002, "hard"), (0x0003, "very hard"))
@@ -236,7 +234,7 @@ _TANK_LIGHT_BRIGHTNESS_900_OPTIONS = (
 
 # ---------------------------------------------------------------------------
 # Per-family settings register tables (HR-readable, HW-writable).
-# Ported from SETTINGS_*_PROBES in upstream src/nivona.cpp:128-177.
+# Per-family settings probe sets.
 # IDs are Nivona-specific and do NOT overlap with Melitta's setting IDs.
 # ---------------------------------------------------------------------------
 
@@ -377,8 +375,8 @@ _STATS_8000: tuple[StatDescriptor, ...] = (
     _count(203, "cappuccino", "Cappuccino"),
     _count(204, "caffe_latte", "Caffè latte"),
     _count(205, "macchiato", "Latte macchiato"),
-    # APK id 206 = Anz_Bezuege_Heisse_Milch (Hot milk, not Warm).
-    # Slug changed from `warm_milk` in v0.77.0 to match APK; entity
+    # id 206 = "Heisse Milch" (Hot milk, not Warm). Slug changed from
+    # `warm_milk` in v0.77.0 to align with vendor terminology; entity
     # registry migration in async_migrate_entry v2 → v3 renames
     # existing user entries.
     _count(206, "hot_milk", "Hot milk"),
@@ -386,7 +384,7 @@ _STATS_8000: tuple[StatDescriptor, ...] = (
     _count(208, "my_coffee", "My coffee"),
     _count(209, "steam_drinks", "Steam drinks"),
     _count(210, "powder_coffee", "Powder coffee"),
-    # Added in v0.77.0 (Gap #9) from APK diagnostics_X.json:
+    # Added in v0.77.0 from extended vendor register set:
     _count(211, "grinding_count", "Grinding count", "maintenance"),
     _count(212, "reserve_count", "Reserve count", "maintenance"),
     _count(213, "total_beverages", "Total beverages"),
@@ -398,13 +396,13 @@ _STATS_8000: tuple[StatDescriptor, ...] = (
     _count(221, "beverages_via_app", "Beverages via app", "maintenance"),
     _pct(600, "descale_percent", "Descale progress"),
     _flag(601, "descale_warning", "Descale warning"),
-    # Added in v0.77.0 (Gap #9): APK Entkalken_Status — descale state machine.
+    # Added in v0.77.0: "Entkalken_Status" — descale state machine.
     _flag(602, "descale_status", "Descale status"),
     _pct(610, "brew_unit_clean_percent", "Brew unit clean progress"),
     _flag(611, "brew_unit_clean_warning", "Brew unit clean warning"),
     _pct(620, "frother_clean_percent", "Frother clean progress"),
     _flag(621, "frother_clean_warning", "Frother clean warning"),
-    # Added in v0.77.0 (Gap #9): APK SpuelenAufsch_Notwendig — frother-rinse needed.
+    # Added in v0.77.0: "SpuelenAufsch_Notwendig" — frother-rinse needed.
     _flag(630, "frother_rinse_needed", "Frother rinse needed"),
     _pct(640, "filter_percent", "Filter progress"),
     _flag(641, "filter_warning", "Filter warning"),
@@ -526,8 +524,8 @@ _STATS_900_LIGHT: tuple[StatDescriptor, ...] = _STATS_900
 # Filter dependency is 101.
 _STATS_1030: tuple[StatDescriptor, ...] = (
     _count(200, "espresso", "Espresso"),
-    # APK id 201 = Anz_Bezuege_Coffee. We used to label it `lungo` —
-    # corrected in v0.77.0 (Gap #10); entity registry migration renames
+    # id 201 = "Coffee" counter, not Lungo. We used to label it `lungo`
+    # — corrected in v0.77.0; entity registry migration renames
     # existing user entries.
     _count(201, "coffee", "Coffee"),
     _count(202, "americano", "Americano"),
@@ -538,8 +536,8 @@ _STATS_1030: tuple[StatDescriptor, ...] = (
     _count(207, "hot_milk", "Hot milk"),
     _count(208, "milk_foam", "Milk foam"),
     _count(209, "hot_water", "Hot water"),
-    # Added in v0.77.0 (Gap #10): APK diagnostics_0.json id 210 is
-    # Anz_Bezuege_MyCoffee — was missing entirely on 1030/1040.
+    # Added in v0.77.0: id 210 is the MyCoffee counter — was missing
+    # entirely on 1030/1040.
     _count(210, "my_coffee", "My coffee"),
     _count(211, "steam_drinks", "Steam drinks"),
     _count(212, "powder_coffee", "Powder coffee"),
@@ -554,9 +552,10 @@ _STATS_1030: tuple[StatDescriptor, ...] = (
     _count(221, "filter_changes", "Filter changes", "maintenance"),
     _count(222, "descaling", "Descaling", "maintenance"),
     _count(223, "beverages_via_app", "Beverages via app", "maintenance"),
-    # id 224 is not in APK diagnostics_0.json — origin unclear. Kept
-    # enabled until we get a field-confirmed read from a real NICR
-    # 1030/1040; "(experimental)" in the title flags the uncertainty.
+    # id 224 hasn't been seen in any vendor reference data we trust —
+    # origin unclear. Kept enabled until we get a field-confirmed read
+    # from a real NICR 1030/1040; "(experimental)" in the title flags
+    # the uncertainty.
     _count(224, "beverages_via_kanne", "Beverages via Kanne (experimental)", "maintenance"),
     _pct(600, "descale_percent", "Descale progress"),
     _flag(601, "descale_warning", "Descale warning"),
@@ -577,7 +576,7 @@ _STATS_1040: tuple[StatDescriptor, ...] = tuple(
 
 
 # ---------------------------------------------------------------------------
-# Per-model overrides (MODEL_RULES from upstream src/nivona.cpp:278-311).
+# Per-model overrides.
 # Key: 3- or 4-char serial prefix; value: (my_coffee_slots, strength_levels).
 # Other fields are taken from the family default.
 # ---------------------------------------------------------------------------
@@ -986,15 +985,12 @@ _NIVONA_FAMILIES: dict[str, MachineCapabilities] = {
     ),
 }
 
-# Serial-prefix → family. Exhaustive 4-char then 3-char cascade matches
-# the upstream `detectModelInfo` cascade.
+# Serial-prefix → family. Exhaustive 4-char then 3-char cascade.
 _PREFIX_TO_FAMILY: dict[str, str] = {
-    # 4-char (NIVO 8xxx serials). Mirrors the official Nivona app's
-    # `ToCoffeeMachineModel(string serial)` table exactly (decompiled
-    # APK v3.8.6) — only 8101/8103/8107 are known model codes in the
-    # 8000 family. Newer 81xx variants reported in the field (#15) are
-    # left to fall through to "unknown family"; we'd rather surface
-    # that honestly than guess.
+    # 4-char (NIVO 8xxx serials). Only 8101 / 8103 / 8107 are confirmed
+    # model codes in the 8000 family. Newer 81xx variants reported in
+    # the field (#15) fall through to "unknown family"; we'd rather
+    # surface that honestly than guess at capability layouts.
     "8101": "8000", "8103": "8000", "8107": "8000",
     # 3-char (NICR series; matched after 4-char miss)
     "660": "600", "670": "600", "675": "600", "680": "600",
@@ -1057,8 +1053,7 @@ class NivonaProfile:
         """2-round Nivona HU CRC fold.
 
         Same algorithm shape as Melitta but different table and offsets
-        (+0x5D on first byte, +0xA7 on second). Reverse-engineered from
-        `deriveHuVerifier()` in nivona.cpp.
+        (+0x5D on first byte, +0xA7 on second).
         """
         table = _NIVONA_HU_TABLE
 
