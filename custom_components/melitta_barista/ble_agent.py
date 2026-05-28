@@ -199,14 +199,29 @@ async def async_pair_device(address: str, timeout: float = 30.0) -> str:
         try:
             bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
         except Exception:  # noqa: BLE001 — dbus_fast raises many shapes
-            # No reachable system D-Bus (typical in HA OS containers
-            # without a host BlueZ stack). Functionally equivalent to
-            # "no Adapter1" — the device is reached via an ESPHome BLE
-            # proxy that handles bonding at the ESP32 level. Reported
-            # in #15.
+            # System D-Bus not reachable. Two valid scenarios:
+            #
+            #   1. ESPHome BLE proxy in use — bonding handled at the
+            #      ESP32 level, no host D-Bus needed. Continuing is
+            #      correct here.
+            #   2. Local BLE adapter via Docker / VPS where /run/dbus
+            #      is not mounted into the container — bonding WILL
+            #      fail later with "Authentication failed" or
+            #      "No agent available" because BlueZ has no agent
+            #      to talk to even though the adapter is there.
+            #
+            # We can't reliably tell the two apart from inside the
+            # pairing function (would require HA's bluetooth scanner
+            # registry). Continue optimistically; if Bleak's
+            # `pair=True` later fails, the README troubleshooting
+            # section ("Running HA in a Docker container") covers
+            # the remediation. Reported in #14 / #15.
             _LOGGER.info(
-                "System D-Bus not reachable. "
-                "Assuming ESPHome BLE proxy — skipping D-Bus pairing for %s",
+                "System D-Bus not reachable for %s — skipping D-Bus pairing. "
+                "If this is an ESPHome BLE proxy setup, this is expected. "
+                "If using a local BLE adapter via Docker, ensure /run/dbus "
+                "is mounted into the container and the host has `bluez` "
+                "installed — see README troubleshooting section.",
                 address,
             )
             return "ok"

@@ -87,6 +87,7 @@ issues are typically here.
 | **Intel Wireless 7265 / 8260 / 8265 / AX200 / AX201 / AX210** | Intel | 👥 community-confirmed | Standard Linux BlueZ path. Reliable. |
 | **CSR8510 USB dongle** | CSR / Qualcomm | 👥 community-confirmed | The classic $5 BLE dongle. Verified through unrelated HA integrations; assumed-good here. |
 | **TP-Link UB500 / UB400** | RTL8761B | 👥 community-confirmed | Needs `rtl_bt_*` firmware on Debian-style distros. Otherwise drop-in. |
+| **Apple Broadcom built-in (Mac mini / iMac)** | BCM2046B1 / BCM20702A0 (USB ID `05ac:828d`) | ✅ verified (#14) | Full-stack verified on Ubuntu 24.04 + HA Container + BlueZ 5.72 with NICR 779 (Nivona 7xx). HCI/LMP 4.0, manufacturer ID `0x000f`. |
 | **Built-in BLE on `homeassistant.local` HA OS** | varies (host hardware) | 👥 case-by-case | Most failures here come down to `bluetoothd` cache or stale pairing — see the troubleshooting notes below and in #14. |
 
 #### Known headless-Linux quirks (from #14)
@@ -97,16 +98,44 @@ issues are typically here.
   machine in pair mode.
 - `bluetoothd` can SEGFAULT on certain pairing-cancel paths if no D-Bus
   agent is registered when the request arrives. The integration's
-  `_NoInputOutputAgent` covers this; if you see a fresh report, the
-  agent-registration path may need to be extended to cover continuous
-  reconnects too (tracked in #14 part 2).
+  `_NoInputOutputAgent` covers this.
 
 ### 1.3 BlueZ on Docker / VPS without a desktop session
 
 Same as 1.2 but specifically headless. The D-Bus pairing agent in the
 integration is what unblocks this — there's no Blueman / gnome-bluetooth
-helper to fall back on. If something breaks here, please include
-`bluetoothctl show` output in the bug report.
+helper to fall back on.
+
+**Container prerequisites (often missed — root cause of "HU handshake
+timeout" misdiagnoses, see #14 follow-up)**:
+
+1. **`bluez` must be installed on the host** (NOT just `bluez-obexd`).
+   Without `bluetoothd` running on the host, no GATT pairing happens
+   even though the integration loads cleanly.
+   ```bash
+   sudo apt update && sudo apt install -y bluez
+   sudo systemctl enable --now bluetooth
+   ```
+
+2. **D-Bus socket must be mounted into the container.** Add to your
+   `docker run` / `docker-compose` config:
+   ```yaml
+   volumes:
+     - /run/dbus:/run/dbus:ro
+   ```
+   Without this, the integration cannot talk to `bluetoothd` at all and
+   `Authentication failed` / `No agent available` errors surface during
+   first pairing.
+
+3. **`--privileged` or capability `NET_ADMIN` + `BLUETOOTH_ADMIN`**
+   typically required for BLE scanning from inside a container.
+
+4. **Network mode `host`** recommended (matches HA's expected
+   discovery behaviour).
+
+If something still breaks after these prerequisites, please include
+`bluetoothctl show` output and `dmesg | grep -i bluetooth` in the bug
+report.
 
 ---
 

@@ -2,6 +2,17 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.79.1] — 2026-05-28
+
+### Added
+
+- **README troubleshooting section for Docker HA Container users**. Three host-side prerequisites that are commonly missed and surface as misleading `HU handshake timeout` / `Authentication failed` errors (per issue #14): host `bluez` package install, `/run/dbus:/run/dbus:ro` socket mount, `--privileged` + `--net=host` container flags. Includes BlueZ cache-reset recipe.
+- **`HCL.md` row for Apple Broadcom BCM2046B1 / BCM20702A0** (USB ID `05ac:828d`) graduated to ✅ verified, with full diagnostic context: Ubuntu 24.04 + HA Container + BlueZ 5.72, NICR 779 (Nivona 7xx) end-to-end.
+
+### Fixed
+
+- **Misleading `ble_agent` log when D-Bus is unreachable.** Previously a Docker user without `/run/dbus` mounted would see "Assuming ESPHome BLE proxy" — incorrect and misleading. The log now explicitly names both valid scenarios (ESPHome proxy → expected; Docker without D-Bus mount → broken setup) and points to the README troubleshooting section.
+
 ## [0.79.0] — 2026-05-28
 
 ### Refactored
