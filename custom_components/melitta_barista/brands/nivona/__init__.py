@@ -31,38 +31,22 @@ from ..base import (
     StatDescriptor,
 )
 from ._crypto import _NIVONA_HU_TABLE, _NIVONA_RC4_KEY
-from ._options import (
-    _AUTO_OFF_8000_OPTIONS,
-    _AUTO_OFF_STANDARD_OPTIONS,
-    _HARDNESS_OPTIONS,
-    _MILK_FOAM_TEMPERATURE_1040_OPTIONS,
-    _MILK_TEMPERATURE_1030_OPTIONS,
-    _MILK_TEMPERATURE_1040_OPTIONS,
-    _OFF_ON_OPTIONS,
-    _POWER_ON_FROTHER_TIME_1040_OPTIONS,
-    _PROFILE_1040_OPTIONS,
-    _PROFILE_STANDARD_OPTIONS,
-    _TANK_LIGHT_BRIGHTNESS_900_OPTIONS,
-    _TANK_LIGHT_COLOR_900_OPTIONS,
-    _TEMP_ON_OFF,
-    _TEMPERATURE_OPTIONS,
-)
 from ._prefixes import (
     _MODEL_OVERRIDES,
     _MODEL_SETTINGS_EXCLUDE,
     _PREFIX_TO_FAMILY,
 )
+# MY_COFFEE_* / TEMP_RECIPE_TYPE_REGISTER are re-exported from this
+# package — sensor.py, _ble_commands.py, _ble_recipes.py, and the
+# test suite import them through ``brands.nivona``.
 from ._registers import (
-    MY_COFFEE_BASE_REGISTER,
-    MY_COFFEE_SLOT_STRIDE,
-    RECIPE_BASE_REGISTER,
-    RECIPE_SLOT_STRIDE,
+    MY_COFFEE_BASE_REGISTER,  # noqa: F401  (re-export)
+    MY_COFFEE_SLOT_STRIDE,    # noqa: F401  (re-export)
     TEMP_RECIPE_BASE_REGISTER,
-    TEMP_RECIPE_TYPE_REGISTER,
+    TEMP_RECIPE_TYPE_REGISTER,  # noqa: F401  (re-export)
     mycoffee_register,
     standard_recipe_register,
 )
-from ._stats_helpers import _count, _flag, _pct
 from . import (
     _family_600,
     _family_700,
@@ -343,10 +327,10 @@ class NivonaProfile:
         sub_process / manipulation / progress remain usable).
         """
         import struct  # noqa: PLC0415
-        from ..const import (  # noqa: PLC0415
+        from ...const import (  # noqa: PLC0415
             InfoMessage, MachineProcess, Manipulation, SubProcess,
         )
-        from ..protocol import MachineStatus  # noqa: PLC0415
+        from ...protocol import MachineStatus  # noqa: PLC0415
 
         if len(data) < 8:
             return MachineStatus()
