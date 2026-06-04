@@ -2,6 +2,16 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.81.0] — 2026-06-04
+
+### Refactored
+
+- **Platform owns the domain vocabulary (Phase 2a)**. The shared brand-agnostic types — status enums (`MachineProcess`, `SubProcess`, `InfoMessage`, `Manipulation`), `MachineStatus`, capability descriptors, `MachineCapabilities`, `BrandProfile`, `FeatureNotSupported` — moved into `coffee_platform/domain.py`. The old locations (`brands/base.py`, `protocol.py`, `const.py`) are now thin re-export shims, so all existing imports keep working unchanged. The `CoffeeMachineClient` contract drops its `Any` placeholders and references the real types. `coffee_platform/` is now fully self-contained (stdlib-only, no imports back into the integration) — ready for extraction to a standalone package. No user-facing behavior change.
+
+### Tests
+
+- New `tests/coffee_platform/test_domain.py`: enforces `coffee_platform/` self-containment (no `melitta_barista` imports, AST-checked) and shim re-export identity. Full suite: 1000 passed (was 998).
+
 ## [0.80.1] — 2026-06-04
 
 ### Refactored
