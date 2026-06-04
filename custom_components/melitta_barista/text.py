@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .ble_client import MelittaBleClient
+from .coffee_platform.contract import CoffeeMachineClient
 from .const import USER_NAME_IDS, get_user_profile_count
 from .entity import MelittaDeviceMixin
 
@@ -27,7 +27,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up user-profile-name text entities (Melitta HA/HJ feature)."""
-    client: MelittaBleClient = entry.runtime_data
+    client: CoffeeMachineClient = entry.runtime_data
     name = entry.data.get(CONF_NAME) or f"{client.brand.brand_name} Coffee Machine"
 
     entities: list = []
@@ -57,7 +57,7 @@ class MelittaProfileNameText(MelittaDeviceMixin, TextEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
         profile_num: int,
@@ -113,7 +113,7 @@ class MelittaFreestyleNameText(MelittaDeviceMixin, TextEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
     ) -> None:

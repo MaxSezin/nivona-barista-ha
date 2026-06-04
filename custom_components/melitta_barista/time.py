@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .ble_client import MelittaBleClient
+from .coffee_platform.contract import CoffeeMachineClient
 from .entity import MelittaDeviceMixin
 
 PARALLEL_UPDATES = 0  # BLE: single connection, serialize via locks
@@ -32,7 +32,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the clock time entity for the configured machine."""
-    client: MelittaBleClient = entry.runtime_data
+    client: CoffeeMachineClient = entry.runtime_data
     name = entry.data.get(CONF_NAME) or f"{client.brand.brand_name} Coffee Machine"
     async_add_entities([MelittaClockEntity(client, entry, name)])
 
@@ -48,7 +48,7 @@ class MelittaClockEntity(MelittaDeviceMixin, TimeEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
     ) -> None:

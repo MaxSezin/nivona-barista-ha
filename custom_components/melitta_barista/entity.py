@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from homeassistant.helpers.entity import DeviceInfo
 
-from .ble_client import MelittaBleClient
+from .coffee_platform.contract import CoffeeMachineClient
 from .const import DOMAIN
 
 
@@ -18,7 +18,7 @@ class MelittaDeviceMixin:
     historical compatibility with earlier releases.
     """
 
-    _client: MelittaBleClient
+    _client: CoffeeMachineClient
     _machine_name: str
 
     @property

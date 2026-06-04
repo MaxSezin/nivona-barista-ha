@@ -14,7 +14,8 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from homeassistant.const import CONF_ADDRESS
 
-from .ble_client import MelittaBleClient, resolve_caps_from_scanner
+from .ble_client import resolve_caps_from_scanner
+from .coffee_platform.contract import CoffeeMachineClient
 from .const import MachineSettingId
 from .entity import MelittaDeviceMixin
 
@@ -85,7 +86,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up number entities for the configured coffee machine."""
-    client: MelittaBleClient = entry.runtime_data
+    client: CoffeeMachineClient = entry.runtime_data
     name = entry.data.get(CONF_NAME) or f"{client.brand.brand_name} Coffee Machine"
 
     # Settings (HR/HW) — generic Eugster, every brand supports them.
@@ -159,7 +160,7 @@ class MelittaSettingNumber(MelittaDeviceMixin, NumberEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
         defn: dict,
@@ -232,7 +233,7 @@ class BrandSettingNumber(MelittaDeviceMixin, NumberEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
         descriptor,
@@ -308,7 +309,7 @@ class MelittaFreestyleNumber(MelittaDeviceMixin, NumberEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
         key: str,
@@ -370,7 +371,7 @@ class NivonaBrewOverrideNumber(MelittaDeviceMixin, NumberEntity, RestoreEntity):
     _attr_should_poll = False
 
     def __init__(
-        self, client: MelittaBleClient, entry: ConfigEntry,
+        self, client: CoffeeMachineClient, entry: ConfigEntry,
         machine_name: str, field: str, label: str, icon: str,
         min_v: float, max_v: float, step: float,
         default: float, unit: str | None = None,
