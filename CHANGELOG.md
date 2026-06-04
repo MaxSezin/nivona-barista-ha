@@ -2,6 +2,16 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.80.0] — 2026-06-04
+
+### Refactored
+
+- **Platform contract foundation (Phase 1a)**. New in-repo `coffee_platform/` subpackage defines a transport-agnostic `CoffeeMachineClient` Protocol and a `MachineRegistry`. `MelittaBleClient` is verified to satisfy the contract via a compliance test. Consumers begin depending on the contract instead of the concrete client — `sensor.py` migrated as the pilot. The Sommelier path no longer reaches into the client's private `_capabilities` attribute (routed through the public `capabilities` property). No user-facing behavior change; this is groundwork for extracting a standalone platform package.
+
+### Tests
+
+- New `tests/coffee_platform/` suite: contract compliance, private-leak guard, registry behavior. Full suite: 998 passed (was 992).
+
 ## [0.79.1] — 2026-05-28
 
 ### Added
