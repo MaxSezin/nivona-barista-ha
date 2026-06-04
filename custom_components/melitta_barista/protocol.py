@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from .coffee_platform.domain import MachineStatus
 from .const import (
     AES_IV,
     AES_KEY_PART_A,
@@ -119,63 +120,6 @@ def _calculate_checksum(frame: bytes, length: int) -> int:
     for i in range(1, length):
         s = (s + frame[i]) & 0xFF
     return (~s) & 0xFF
-
-
-@dataclass
-class MachineStatus:
-    """Machine status parsed from HX response."""
-    process: MachineProcess | None = None
-    sub_process: SubProcess | None = None
-    info_messages: InfoMessage = InfoMessage(0)
-    manipulation: Manipulation = Manipulation.NONE
-    progress: int = 0
-
-    @property
-    def is_ready(self) -> bool:
-        return self.process == MachineProcess.READY and self.manipulation == Manipulation.NONE
-
-    def is_ready_for_brew(self, tolerated: tuple[int, ...] = ()) -> bool:
-        """Like is_ready but accepts brand-tolerated manipulation flags.
-
-        Some Nivona models leave MOVE_CUP_TO_FROTHER set after a
-        completed brew until the next status frame; the brand profile
-        declares such flags via tolerated_brew_manipulations so the
-        brew gate doesn't reject the next brew falsely.
-        """
-        if self.process != MachineProcess.READY:
-            return False
-        if self.manipulation == Manipulation.NONE:
-            return True
-        return self.manipulation.value in tolerated
-
-    @property
-    def is_brewing(self) -> bool:
-        return self.process == MachineProcess.PRODUCT
-
-    @classmethod
-    def from_payload(cls, data: bytes) -> MachineStatus:
-        if len(data) < 8:
-            return cls()
-        process_val, sub_val, info_byte, manip_byte, progress = struct.unpack(">hhBBh", data[:8])
-        try:
-            process = MachineProcess(process_val)
-        except ValueError:
-            process = None
-        try:
-            sub_process = SubProcess(sub_val)
-        except ValueError:
-            sub_process = None
-        try:
-            manipulation = Manipulation(manip_byte)
-        except ValueError:
-            manipulation = Manipulation.NONE
-        return cls(
-            process=process,
-            sub_process=sub_process,
-            info_messages=InfoMessage(info_byte),
-            manipulation=manipulation,
-            progress=progress,
-        )
 
 
 @dataclass

@@ -4,16 +4,138 @@ from __future__ import annotations
 
 Canonical home of the types the platform contract and every brand
 provider share: capability descriptors, MachineCapabilities, the
-BrandProfile Protocol, FeatureNotSupported. (A later task adds the
-MachineStatus model and its status enums.)
+BrandProfile Protocol, FeatureNotSupported, status enums, and
+MachineStatus.
 
 Depends ONLY on the Python standard library — never on melitta_barista
 internals — so coffee_platform/ can be lifted into a standalone repo.
 """
 
 import re
+import struct
 from dataclasses import dataclass
+from enum import IntEnum, IntFlag
 from typing import Protocol, runtime_checkable
+
+
+# ---------------------------------------------------------------------------
+# Machine status enums
+# ---------------------------------------------------------------------------
+
+class MachineProcess(IntEnum):
+    """Machine process states."""
+    READY = 2
+    PRODUCT = 4
+    CLEANING = 9
+    DESCALING = 10
+    FILTER_INSERT = 11
+    FILTER_REPLACE = 12
+    FILTER_REMOVE = 13
+    SWITCH_OFF = 16
+    EASY_CLEAN = 17
+    INTENSIVE_CLEAN = 19
+    EVAPORATING = 20
+    BUSY = 99
+
+
+class SubProcess(IntEnum):
+    """Sub-process states during preparation."""
+    GRINDING = 1
+    COFFEE = 2
+    STEAM = 3
+    WATER = 4
+    PREPARE = 5
+
+
+class InfoMessage(IntFlag):
+    """Info message bitfield."""
+    FILL_BEANS_1 = 1 << 0
+    FILL_BEANS_2 = 1 << 1
+    EASY_CLEAN = 1 << 2
+    POWDER_FILLED = 1 << 3
+    PREPARATION_CANCELLED = 1 << 4
+
+
+class Manipulation(IntEnum):
+    """Manipulation states requiring user action.
+
+    Values 0 / 11 / 20 are observed and named the same way on both
+    Melitta and Nivona hardware. Values 1–6 are Melitta-derived labels;
+    real Nivona machines may emit different codes or a different
+    1-6 → meaning mapping. HA currently applies the Melitta labels
+    for any value in 1..6; this is a best-effort placeholder until
+    per-brand parse_status overrides verify the mapping.
+    """
+    NONE = 0
+    BU_REMOVED = 1            # Melitta-observed
+    TRAYS_MISSING = 2         # Melitta-observed
+    EMPTY_TRAYS = 3           # Melitta-observed
+    FILL_WATER = 4            # Melitta-observed
+    CLOSE_POWDER_LID = 5      # Melitta-observed
+    FILL_POWDER = 6           # Melitta-observed
+    MOVE_CUP_TO_FROTHER = 11  # observed on both brands
+    FLUSH_REQUIRED = 20       # observed on both brands
+
+
+# ---------------------------------------------------------------------------
+# Machine status model
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MachineStatus:
+    """Machine status parsed from HX response."""
+    process: MachineProcess | None = None
+    sub_process: SubProcess | None = None
+    info_messages: InfoMessage = InfoMessage(0)
+    manipulation: Manipulation = Manipulation.NONE
+    progress: int = 0
+
+    @property
+    def is_ready(self) -> bool:
+        return self.process == MachineProcess.READY and self.manipulation == Manipulation.NONE
+
+    def is_ready_for_brew(self, tolerated: tuple[int, ...] = ()) -> bool:
+        """Like is_ready but accepts brand-tolerated manipulation flags.
+
+        Some Nivona models leave MOVE_CUP_TO_FROTHER set after a
+        completed brew until the next status frame; the brand profile
+        declares such flags via tolerated_brew_manipulations so the
+        brew gate doesn't reject the next brew falsely.
+        """
+        if self.process != MachineProcess.READY:
+            return False
+        if self.manipulation == Manipulation.NONE:
+            return True
+        return self.manipulation.value in tolerated
+
+    @property
+    def is_brewing(self) -> bool:
+        return self.process == MachineProcess.PRODUCT
+
+    @classmethod
+    def from_payload(cls, data: bytes) -> MachineStatus:
+        if len(data) < 8:
+            return cls()
+        process_val, sub_val, info_byte, manip_byte, progress = struct.unpack(">hhBBh", data[:8])
+        try:
+            process = MachineProcess(process_val)
+        except ValueError:
+            process = None
+        try:
+            sub_process = SubProcess(sub_val)
+        except ValueError:
+            sub_process = None
+        try:
+            manipulation = Manipulation(manip_byte)
+        except ValueError:
+            manipulation = Manipulation.NONE
+        return cls(
+            process=process,
+            sub_process=sub_process,
+            info_messages=InfoMessage(info_byte),
+            manipulation=manipulation,
+            progress=progress,
+        )
 
 
 # ---------------------------------------------------------------------------

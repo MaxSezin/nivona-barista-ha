@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 from enum import IntEnum, IntFlag
+
+from .coffee_platform.domain import (
+    InfoMessage,
+    Manipulation,
+    MachineProcess,
+    SubProcess,
+)
 from uuid import UUID
 
 DOMAIN = "melitta_barista"
@@ -109,40 +116,6 @@ ENCRYPTED_RC4_KEY = bytes([
 ])
 
 
-class MachineProcess(IntEnum):
-    """Machine process states."""
-    READY = 2
-    PRODUCT = 4
-    CLEANING = 9
-    DESCALING = 10
-    FILTER_INSERT = 11
-    FILTER_REPLACE = 12
-    FILTER_REMOVE = 13
-    SWITCH_OFF = 16
-    EASY_CLEAN = 17
-    INTENSIVE_CLEAN = 19
-    EVAPORATING = 20
-    BUSY = 99
-
-
-class SubProcess(IntEnum):
-    """Sub-process states during preparation."""
-    GRINDING = 1
-    COFFEE = 2
-    STEAM = 3
-    WATER = 4
-    PREPARE = 5
-
-
-class InfoMessage(IntFlag):
-    """Info message bitfield."""
-    FILL_BEANS_1 = 1 << 0
-    FILL_BEANS_2 = 1 << 1
-    EASY_CLEAN = 1 << 2
-    POWDER_FILLED = 1 << 3
-    PREPARATION_CANCELLED = 1 << 4
-
-
 class FeatureFlags(IntFlag):
     """Machine capability bits read via HI (byte 0).
 
@@ -151,27 +124,6 @@ class FeatureFlags(IntFlag):
     observed on real machines.
     """
     IMAGE_TRANSFER = 1 << 0
-
-
-class Manipulation(IntEnum):
-    """Manipulation states requiring user action.
-
-    Values 0 / 11 / 20 are observed and named the same way on both
-    Melitta and Nivona hardware. Values 1–6 are Melitta-derived labels;
-    real Nivona machines may emit different codes or a different
-    1-6 → meaning mapping. HA currently applies the Melitta labels
-    for any value in 1..6; this is a best-effort placeholder until
-    per-brand parse_status overrides verify the mapping.
-    """
-    NONE = 0
-    BU_REMOVED = 1            # Melitta-observed
-    TRAYS_MISSING = 2         # Melitta-observed
-    EMPTY_TRAYS = 3           # Melitta-observed
-    FILL_WATER = 4            # Melitta-observed
-    CLOSE_POWDER_LID = 5      # Melitta-observed
-    FILL_POWDER = 6           # Melitta-observed
-    MOVE_CUP_TO_FROTHER = 11  # observed on both brands
-    FLUSH_REQUIRED = 20       # observed on both brands
 
 
 # Codes that warrant surfacing "awaiting confirmation" UI / button.
