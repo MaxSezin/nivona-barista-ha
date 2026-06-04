@@ -58,7 +58,7 @@ def _resolve_entry(hass: HomeAssistant, entry_id: str) -> ConfigEntry | None:
 
 
 def _resolve_client(hass: HomeAssistant, entry_id: str):
-    """Return the live MelittaBleClient for an entry, or None."""
+    """Return the live machine client for an entry, or None."""
     entry = _resolve_entry(hass, entry_id)
     if entry is None:
         return None

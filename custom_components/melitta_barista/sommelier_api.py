@@ -20,7 +20,7 @@ _LOGGER = logging.getLogger("melitta_barista")
 
 
 def _find_client(hass: HomeAssistant):
-    """Find the first available MelittaBleClient via config entries."""
+    """Find the first available machine client via config entries."""
     for entry in hass.config_entries.async_entries(DOMAIN):
         if hasattr(entry, "runtime_data") and entry.runtime_data:
             return entry.runtime_data

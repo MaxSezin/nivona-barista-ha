@@ -13,7 +13,8 @@ from homeassistant.const import CONF_ADDRESS, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .ble_client import MelittaBleClient, resolve_caps_from_scanner
+from .ble_client import resolve_caps_from_scanner
+from .coffee_platform.contract import CoffeeMachineClient
 from .const import (
     PROFILE_NAMES,
     RECIPE_NAMES,
@@ -112,7 +113,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up select entities for the configured coffee machine."""
-    client: MelittaBleClient = entry.runtime_data
+    client: CoffeeMachineClient = entry.runtime_data
     name = entry.data.get(CONF_NAME) or f"{client.brand.brand_name} Coffee Machine"
 
     entities: list = []
@@ -177,7 +178,7 @@ class MelittaRecipeSelect(MelittaDeviceMixin, SelectEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
     ) -> None:
@@ -290,7 +291,7 @@ class MelittaProfileSelect(MelittaDeviceMixin, SelectEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
     ) -> None:
@@ -381,7 +382,7 @@ class MelittaFreestyleSelect(MelittaDeviceMixin, SelectEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
         key: str,
@@ -438,7 +439,7 @@ class BrandSettingSelect(MelittaDeviceMixin, SelectEntity):
     _attr_has_entity_name = True
     _attr_entity_category = None
 
-    def __init__(self, client: MelittaBleClient, entry: ConfigEntry, name: str, descriptor) -> None:
+    def __init__(self, client: CoffeeMachineClient, entry: ConfigEntry, name: str, descriptor) -> None:
         self._client = client
         self._entry = entry
         self._machine_name = name
@@ -529,7 +530,7 @@ class NivonaRecipeSelect(MelittaDeviceMixin, SelectEntity):
     _attr_icon = "mdi:coffee-maker-outline"
     _attr_should_poll = True  # poll periodically until caps resolve
 
-    def __init__(self, client: MelittaBleClient, entry: ConfigEntry, machine_name: str) -> None:
+    def __init__(self, client: CoffeeMachineClient, entry: ConfigEntry, machine_name: str) -> None:
         self._client = client
         self._entry = entry
         self._machine_name = machine_name

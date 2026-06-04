@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from bleak.exc import BleakError
 
-from .ble_client import MelittaBleClient
+from .coffee_platform.contract import CoffeeMachineClient
 from .const import MachineSettingId, MachineType, TS_ONLY_SETTINGS, get_user_profile_count
 from .entity import MelittaDeviceMixin
 
@@ -51,7 +51,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up switch entities for the configured coffee machine."""
-    client: MelittaBleClient = entry.runtime_data
+    client: CoffeeMachineClient = entry.runtime_data
     name = entry.data.get(CONF_NAME) or f"{client.brand.brand_name} Coffee Machine"
 
     entities = [
@@ -80,7 +80,7 @@ class MelittaSettingSwitch(MelittaDeviceMixin, SwitchEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
         defn: dict,
@@ -145,7 +145,7 @@ class MelittaProfileActivitySwitch(MelittaDeviceMixin, SwitchEntity):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         machine_name: str,
         profile_id: int,

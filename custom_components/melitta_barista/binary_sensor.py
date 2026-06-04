@@ -13,7 +13,7 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .ble_client import MelittaBleClient
+from .coffee_platform.contract import CoffeeMachineClient
 from .const import PROMPT_MANIPULATIONS
 from .entity import MelittaDeviceMixin
 from .protocol import MachineStatus
@@ -29,7 +29,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up binary-sensor entities for the configured coffee machine."""
-    client: MelittaBleClient = entry.runtime_data
+    client: CoffeeMachineClient = entry.runtime_data
     name = entry.data.get(CONF_NAME) or f"{client.brand.brand_name} Coffee Machine"
     async_add_entities(
         [MelittaAwaitingConfirmationBinarySensor(client, entry, name)]
@@ -45,7 +45,7 @@ class MelittaAwaitingConfirmationBinarySensor(MelittaDeviceMixin, BinarySensorEn
     _attr_has_entity_name = True
 
     def __init__(
-        self, client: MelittaBleClient, entry: ConfigEntry, name: str,
+        self, client: CoffeeMachineClient, entry: ConfigEntry, name: str,
     ) -> None:
         self._client = client
         self._entry = entry

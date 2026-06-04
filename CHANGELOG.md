@@ -2,6 +2,12 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.80.1] — 2026-06-04
+
+### Refactored
+
+- **Platform contract migration completed (Phase 1b)**. All remaining consumer files migrated from the concrete `MelittaBleClient` type hint to the `CoffeeMachineClient` contract: `button.py`, `select.py`, `number.py`, `switch.py`, `text.py`, `time.py`, `binary_sensor.py`, `entity.py` (the `MelittaDeviceMixin` base), `diagnostics.py`. `__init__.py` intentionally retains `MelittaBleClient` — it is the Eugster provider's composition root (constructs the concrete client) and stays with the provider in a future package split. Type-hint-only change; no runtime behavior change. 998 tests pass.
+
 ## [0.80.0] — 2026-06-04
 
 ### Refactored

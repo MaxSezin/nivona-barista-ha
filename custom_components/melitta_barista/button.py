@@ -14,7 +14,8 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from homeassistant.const import CONF_ADDRESS
-from .ble_client import MelittaBleClient, resolve_caps_from_scanner
+from .ble_client import resolve_caps_from_scanner
+from .coffee_platform.contract import CoffeeMachineClient
 from .const import (
     FREESTYLE_RECIPE_TYPE, HE_CMD_FACTORY_RESET_RECIPES,
     HE_CMD_FACTORY_RESET_SETTINGS, PROMPT_MANIPULATIONS, RECIPE_NAMES,
@@ -36,7 +37,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up button entities for the configured coffee machine."""
-    client: MelittaBleClient = entry.runtime_data
+    client: CoffeeMachineClient = entry.runtime_data
     name = entry.data.get(CONF_NAME) or f"{client.brand.brand_name} Coffee Machine"
 
     entities: list[ButtonEntity] = []
@@ -151,7 +152,7 @@ class _MelittaButtonBase(MelittaDeviceMixin, ButtonEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, client: MelittaBleClient, entry: ConfigEntry, machine_name: str) -> None:
+    def __init__(self, client: CoffeeMachineClient, entry: ConfigEntry, machine_name: str) -> None:
         self._client = client
         self._entry = entry
         self._machine_name = machine_name
@@ -522,7 +523,7 @@ class MelittaMaintenanceButton(_MelittaButtonBase):
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
-        self, client: MelittaBleClient, entry: ConfigEntry,
+        self, client: CoffeeMachineClient, entry: ConfigEntry,
         machine_name: str, *, key: str, label: str, icon: str,
         process: MachineProcess,
     ) -> None:
@@ -581,7 +582,7 @@ class NivonaBrewMyCoffeeButton(_MelittaButtonBase):
 
     def __init__(
         self,
-        client: MelittaBleClient,
+        client: CoffeeMachineClient,
         entry: ConfigEntry,
         name: str,
         slot: int,
