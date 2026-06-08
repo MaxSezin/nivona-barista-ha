@@ -25,10 +25,19 @@ esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   name_add_mac_suffix: false
-  # 2025.8 introduces the new top-level `api.actions:` schema used by
-  # clear_ble_bonds / disconnect_ble_peer below. Older versions silently
-  # ignore the block — this guard makes that obvious at compile time.
-  min_version: 2025.8.0
+  # Require 2026.5.0+. Two reasons:
+  #  - 2025.8 introduced the top-level `api.actions:` schema used by
+  #    clear_ble_bonds / disconnect_ble_peer below.
+  #  - 2026.5 holds ESP_COEX_PREFER_BT for the full lifetime of a BLE
+  #    connection (PR #16036), fixing status=0x85/133 GATT failures under
+  #    heavy WiFi load — the connection-reliability class of the pairing
+  #    wedge this proxy fights. Combined with the ~12µs event handling from
+  #    2025.11 (wake_loop_threadsafe) and the 2026.4 BLE-handler
+  #    devirtualization, this makes the proxy competitive with a local
+  #    adapter. Pinning it here guarantees a reflash actually carries the fix.
+  # Tradeoff: while a long-lived BLE connection is up, this ESP may show
+  # slightly lower WiFi throughput — negligible for a dedicated proxy.
+  min_version: 2026.5.0
   # Toggle antenna RF switch pins on boot (FM8625H on XIAO C6)
   on_boot:
     priority: 600
@@ -97,6 +106,12 @@ api:
     # link and ignores fresh client-side connect requests; this forces
     # the GAP layer to drop it so the next request actually opens a
     # new SMP exchange.
+    #
+    # NOTE: the 2026.5 coex fix sharply reduces the *connection-reliability*
+    # wedge (status=133 drops under WiFi load), so this action and the
+    # repair flow should fire far less often. It does NOT address the
+    # stale-bond SMP rejection (reason=82) itself — clear_ble_bonds above
+    # remains the tool for that. Keep both as fallbacks.
     #
     # In HA: Developer Tools → Services →
     #   esphome.${name}_disconnect_ble_peer

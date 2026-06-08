@@ -30,10 +30,11 @@ esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   name_add_mac_suffix: false
-  # 2025.8 introduces the new top-level `api.actions:` schema used by
-  # clear_ble_bonds / disconnect_ble_peer below. Older versions silently
-  # ignore the block — this guard makes that obvious at compile time.
-  min_version: 2025.8.0
+  # Require 2026.5.0+ — `api.actions:` schema (since 2025.8) plus the 2026.5
+  # ESP_COEX_PREFER_BT fix (PR #16036) that cures status=0x85/133 GATT drops
+  # under WiFi load, the connection-reliability class of the pairing wedge.
+  # See ble-proxy-xiao-c6.yaml for the full rationale + tradeoff note.
+  min_version: 2026.5.0
 
 esp32:
   board: seeed_xiao_esp32s3
