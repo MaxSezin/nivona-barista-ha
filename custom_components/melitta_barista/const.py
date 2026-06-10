@@ -5,10 +5,10 @@ from __future__ import annotations
 from enum import IntEnum, IntFlag
 
 from .coffee_platform.domain import (
-    InfoMessage,
+    InfoMessage as InfoMessage,  # re-exported for `from .const import InfoMessage`
     Manipulation,
-    MachineProcess,
-    SubProcess,
+    MachineProcess as MachineProcess,  # re-export shim (used by sensor.py)
+    SubProcess as SubProcess,  # re-export shim
 )
 from uuid import UUID
 

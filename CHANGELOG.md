@@ -2,6 +2,12 @@
 
 All notable changes to the Melitta Barista Smart & Nivona HA Integration.
 
+## [0.81.1] — 2026-06-10
+
+### Fixed
+
+- **Green CI lint**. Cleaned up import leftovers from the Phase 2a domain relocation that tripped Ruff: removed four dead status-enum imports in `protocol.py` (they moved to `coffee_platform.domain`), marked the three intentional re-export shims in `const.py` as explicit re-exports, and moved the `coffee_platform/domain.py` module docstring above `from __future__ import annotations` (E402). No behavior change; 1000 tests still pass.
+
 ## [0.81.0] — 2026-06-04
 
 ### Refactored

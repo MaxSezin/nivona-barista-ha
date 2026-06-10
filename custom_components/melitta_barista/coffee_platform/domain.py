@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """coffee_platform.domain — brand-agnostic domain vocabulary.
 
 Canonical home of the types the platform contract and every brand
@@ -10,6 +8,8 @@ MachineStatus.
 Depends ONLY on the Python standard library — never on melitta_barista
 internals — so coffee_platform/ can be lifted into a standalone repo.
 """
+
+from __future__ import annotations
 
 import re
 import struct

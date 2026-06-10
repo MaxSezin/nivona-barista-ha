@@ -45,10 +45,6 @@ from .const import (
     FRAME_START,
     FRAME_TIMEOUT,
     FeatureFlags,
-    InfoMessage,
-    MachineProcess,
-    Manipulation,
-    SubProcess,
 )
 
 _LOGGER = logging.getLogger("melitta_barista")
