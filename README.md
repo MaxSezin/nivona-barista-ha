@@ -3,7 +3,7 @@
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dzerik&repository=melitta-barista-ha&category=integration)
 
 [![GitHub Release](https://img.shields.io/github/v/release/dzerik/melitta-barista-ha?style=flat-square&include_prereleases)](https://github.com/dzerik/melitta-barista-ha/releases)
-[![GitHub Downloads](https://img.shields.io/github/downloads/dzerik/melitta-barista-ha/total?style=flat-square&label=downloads)](https://github.com/dzerik/melitta-barista-ha/releases)
+[![GitHub Downloads](https://img.shields.io/github/downloads/dzerik/melitta-barista-ha/total?style=flat-square&label=downloads&cacheSeconds=86400)](https://github.com/dzerik/melitta-barista-ha/releases)
 [![Tests](https://img.shields.io/github/actions/workflow/status/dzerik/melitta-barista-ha/tests.yml?style=flat-square&label=686%20tests)](https://github.com/dzerik/melitta-barista-ha/actions/workflows/tests.yml)
 [![Validate](https://img.shields.io/github/actions/workflow/status/dzerik/melitta-barista-ha/tests.yml?style=flat-square&label=hassfest%2BHACS)](https://github.com/dzerik/melitta-barista-ha/actions)
 [![License](https://img.shields.io/github/license/dzerik/melitta-barista-ha?style=flat-square)](LICENSE)
