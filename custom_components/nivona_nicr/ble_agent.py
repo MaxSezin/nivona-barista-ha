@@ -12,7 +12,7 @@ from dbus_fast import BusType, Variant
 from dbus_fast.aio import MessageBus
 from dbus_fast.service import ServiceInterface, dbus_method
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 _AGENT_PATH = "/melitta/pairing_agent"
 

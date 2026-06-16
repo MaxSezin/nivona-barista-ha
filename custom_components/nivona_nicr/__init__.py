@@ -1,4 +1,4 @@
-"""Home Assistant integration for Melitta & Nivona smart coffee machines."""
+"""Home Assistant integration for Nivona NICR smart coffee machines."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ from .const import (
     SERVICE_SYNC_CLOCK,
 )
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
@@ -282,8 +282,8 @@ class ClockSyncCoordinator:
         self._hass.async_create_task(self._trigger_sync("daily", force=True))
 
 
-PANEL_URL_PATH = "melitta-barista"
-PANEL_STATIC_PATH = "/melitta_barista/panel"
+PANEL_URL_PATH = "nivona-nicr"
+PANEL_STATIC_PATH = "/nivona_nicr/panel"
 
 
 async def _async_register_panel(hass: HomeAssistant) -> None:
@@ -311,12 +311,12 @@ async def _async_register_panel(hass: HomeAssistant) -> None:
     async_register_built_in_panel(
         hass,
         component_name="custom",
-        sidebar_title="Melitta",
+        sidebar_title="Nivona",
         sidebar_icon="mdi:coffee-maker",
         frontend_url_path=PANEL_URL_PATH,
         config={
             "_panel_custom": {
-                "name": "melitta-panel",
+                "name": "nivona-panel",
                 "module_url": f"{PANEL_STATIC_PATH}/melitta-panel.js?v={version}",
                 "embed_iframe": False,
                 "trust_external": False,
@@ -325,7 +325,7 @@ async def _async_register_panel(hass: HomeAssistant) -> None:
         require_admin=True,
     )
     domain_data["panel_registered"] = True
-    _LOGGER.debug("Melitta admin panel registered at /%s", PANEL_URL_PATH)
+    _LOGGER.debug("Nivona admin panel registered at /%s", PANEL_URL_PATH)
 
 
 def _async_unregister_panel(hass: HomeAssistant) -> None:
@@ -344,7 +344,7 @@ def _async_unregister_panel(hass: HomeAssistant) -> None:
 def _async_register_panel_websocket(hass: HomeAssistant) -> None:
     """Register the panel's bootstrap WS handler.
 
-    Returns the list of melitta_barista config entries the panel can target.
+    Returns the list of nivona_nicr config entries the panel can target.
     Per-tab WS handlers will be registered alongside their feature work.
     """
     domain_data = hass.data.setdefault(DOMAIN, {})
@@ -352,7 +352,7 @@ def _async_register_panel_websocket(hass: HomeAssistant) -> None:
         return
 
     @websocket_command(
-        {vol.Required("type"): "melitta_barista/entries"}
+        {vol.Required("type"): "nivona_nicr/entries"}
     )
     @callback
     def _ws_list_entries(hass_, connection, msg):
@@ -622,7 +622,7 @@ async def _async_force_repair(
     # fresh source/address_type pair.
     hass.async_create_task(
         hass.config_entries.async_reload(proxy_entry.entry_id),
-        name=f"melitta_barista_force_repair_{client.address}",
+        name=f"nivona_nicr_force_repair_{client.address}",
     )
     result["proxy_reloaded"] = True
 
@@ -691,7 +691,7 @@ async def _async_repair_pairing(
     # async_reload itself is safe to call from any event-loop context.
     hass.async_create_task(
         hass.config_entries.async_reload(proxy_entry.entry_id),
-        name=f"melitta_barista_repair_{client.address}",
+        name=f"nivona_nicr_repair_{client.address}",
     )
     return True
 
@@ -699,8 +699,8 @@ async def _async_repair_pairing(
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate config entries forward.
 
-    v1 → v2: introduce ``brand`` field. All pre-existing entries are
-    Melitta (the only previously supported brand).
+    v1 → v2: introduce ``brand`` field. All pre-existing entries default
+    to nivona (the only supported brand).
 
     v2 → v3 (0.77.0): rename two Nivona stat-sensor slugs to align
     with vendor terminology (`warm_milk` → `hot_milk` on 8000 family,
@@ -919,7 +919,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         hass.async_create_task(
             _async_repair_pairing(hass, entry),
-            name=f"melitta_barista_repair_trigger_{address}",
+            name=f"nivona_nicr_repair_trigger_{address}",
         )
 
     client.set_repair_callback(_trigger_repair)
@@ -972,7 +972,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     # Setup-phase timing diagnostics (DEBUG level — enable
-    # `logger.melitta_barista: debug` in HA to see them).
+    # `logger.nivona_nicr: debug` in HA to see them).
     _t_setup_start = _time_perf_counter()
 
     # Clean up legacy per-recipe button entities (v0.5.x → v0.6.0 migration)
@@ -1031,7 +1031,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             reconnect_delay=opts.get(CONF_RECONNECT_DELAY, DEFAULT_RECONNECT_DELAY),
             reconnect_max_delay=opts.get(CONF_RECONNECT_MAX_DELAY, DEFAULT_RECONNECT_MAX_DELAY),
         ),
-        f"melitta_barista_connect_{address}",
+        f"nivona_nicr_connect_{address}",
     )
 
     @callback
@@ -1480,10 +1480,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
     async def _handle_repair_connection(call: ServiceCall) -> None:
         """Manual recovery for a wedged pairing.
 
-        Walks every melitta_barista config entry and triggers the repair
+        Walks every nivona_nicr config entry and triggers the repair
         routine (reload the ESPHome proxy entry that owns the peer).
         Lightweight: at most one ESPHome reload per unique proxy entry,
-        even if several Melitta machines share the same proxy.
+        even if several Nivona machines share the same proxy.
         """
         reloaded: set[str] = set()
         for entry in hass.config_entries.async_entries(DOMAIN):
@@ -1509,7 +1509,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         """Push HA local time to the machine RTC (setting 21)."""
         clients = _async_resolve_clients_for_service(hass, call)
         if not clients:
-            raise HomeAssistantError("No Melitta machine configured")
+            raise HomeAssistantError("No Nivona machine configured")
         now = dt_util.now()
         minutes = now.hour * 60 + now.minute
         any_fail = False

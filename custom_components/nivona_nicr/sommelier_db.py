@@ -12,7 +12,7 @@ from typing import Any
 
 import aiosqlite
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 SCHEMA_VERSION = 9
 

@@ -1,4 +1,4 @@
-"""Constants for the Melitta Barista Smart integration."""
+"""Constants for the Nivona NICR integration."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from .coffee_platform.domain import (
 )
 from uuid import UUID
 
-DOMAIN = "melitta_barista"
+DOMAIN = "nivona_nicr"
 
 # Integration-wide WebSocket API contract version. Bump MAJOR on a
 # breaking change to any endpoint's input/output shape. Bump MINOR on
@@ -20,39 +20,6 @@ DOMAIN = "melitta_barista"
 # response key). See docs/SOMMELIER_API.md for the canonical contract.
 API_VERSION = "1.0"
 
-
-# ---------------------------------------------------------------------------
-# Machine types
-# ---------------------------------------------------------------------------
-
-class MachineType(IntEnum):
-    """Machine type IDs read via HR id=6."""
-    BARISTA_T = 258
-    BARISTA_TS = 259
-
-
-MACHINE_TYPE_SETTING_ID = 6  # HR id to read machine type
-
-# BLE device name prefixes per model
-BLE_PREFIXES_T: set[str] = {"8301", "8311", "8401"}
-BLE_PREFIXES_TS: set[str] = {"8501", "8601", "8604"}
-BLE_PREFIXES_ALL: set[str] = BLE_PREFIXES_T | BLE_PREFIXES_TS
-
-MACHINE_MODEL_NAMES: dict[MachineType, str] = {
-    MachineType.BARISTA_T: "Barista T Smart",
-    MachineType.BARISTA_TS: "Barista TS Smart",
-}
-
-
-def detect_machine_type_from_name(device_name: str) -> MachineType | None:
-    """Determine machine type from BLE device name prefix."""
-    for prefix in BLE_PREFIXES_T:
-        if device_name.startswith(prefix):
-            return MachineType.BARISTA_T
-    for prefix in BLE_PREFIXES_TS:
-        if device_name.startswith(prefix):
-            return MachineType.BARISTA_TS
-    return None
 
 # BLE GATT UUIDs
 CHAR_NOTIFY = UUID("0000ad02-b35c-11e4-9813-0002a5d5c51b")
@@ -282,28 +249,6 @@ RECIPE_TO_DIRECTKEY: dict[int, DirectKeyCategory] = {
 # Profile names for select entity
 PROFILE_NAMES = {0: "My Coffee"}  # Profile 0 is default
 
-
-# User profile name IDs: 310, 320, ..., 380
-USER_NAME_IDS = {i: 310 + (i - 1) * 10 for i in range(1, 9)}
-# User activity IDs: 311, 321, ..., 381
-USER_ACTIVITY_IDS = {i: 311 + (i - 1) * 10 for i in range(1, 9)}
-
-# Profile count per model
-# T: profiles 0-4 (5 total), TS: profiles 0-8 (9 total)
-# Profile 0 is "My Coffee" (default), profiles 1-N are user-named
-PROFILE_COUNTS: dict[MachineType, int] = {
-    MachineType.BARISTA_T: 5,
-    MachineType.BARISTA_TS: 9,
-}
-
-
-def get_user_profile_count(machine_type: MachineType | None) -> int:
-    """Return number of user-configurable profiles (excluding default profile 0)."""
-    if machine_type is None:
-        return 8  # max
-    total = PROFILE_COUNTS.get(machine_type, 5)
-    return total - 1  # exclude profile 0 (default)
-
 # RecipeType values
 RECIPE_TYPE_MAP: dict[int, int] = {
     RecipeId.ESPRESSO: 0, RecipeId.RISTRETTO: 1, RecipeId.LUNGO: 2,
@@ -353,25 +298,6 @@ def get_recipe_key(recipe_type: int) -> int:
     """Get RecipeKey byte value for a given RecipeType byte value."""
     return RECIPE_TYPE_TO_KEY.get(recipe_type, 7)  # default MENU(7) for unknown
 
-
-# TS-only recipes
-TS_ONLY_RECIPES: set[int] = {
-    RecipeId.RED_EYE,
-    RecipeId.BLACK_EYE,
-    RecipeId.DEAD_EYE,
-}
-
-# Base recipes available on all models
-BASE_RECIPES: list[int] = [
-    r for r in RecipeId if r not in TS_ONLY_RECIPES
-]
-
-
-def get_available_recipes(machine_type: MachineType | None) -> list[int]:
-    """Return recipe IDs available for the given machine type."""
-    if machine_type == MachineType.BARISTA_TS or machine_type is None:
-        return list(RecipeId)
-    return BASE_RECIPES
 
 
 class Intensity(IntEnum):
@@ -494,7 +420,7 @@ DEFAULT_AUTO_CONFIRM_PROMPTS = False
 
 # Brand selection (multi-brand support, added in 0.40.0).
 CONF_BRAND = "brand"
-DEFAULT_BRAND = "melitta"
+DEFAULT_BRAND = "nivona"
 
 # Family key override for misdetected machines (v0.43.0+).
 CONF_FAMILY_OVERRIDE = "family_override"
@@ -549,3 +475,32 @@ CLOCK_SYNC_THROTTLE_HOURS = 12
 
 # Service name
 SERVICE_SYNC_CLOCK = "sync_clock"
+
+# ---------------------------------------------------------------------------
+# Compatibility stubs — Nivona-only integration has no machine types.
+# These are kept so ble_client.py, _ble_recipes.py and text.py compile
+# without changes; they effectively become no-ops at runtime.
+# ---------------------------------------------------------------------------
+
+class MachineType(IntEnum):
+    """Stub enum — Nivona machines have no distinct machine-type register."""
+    NICR = 0
+
+
+# User profile name/activity register IDs (Nivona uses same layout as Melitta)
+USER_NAME_IDS: dict[int, int] = {i: 310 + (i - 1) * 10 for i in range(1, 9)}
+USER_ACTIVITY_IDS: dict[int, int] = {i: 311 + (i - 1) * 10 for i in range(1, 9)}
+
+MACHINE_TYPE_SETTING_ID: int = 6  # HR register read on connect (may be absent on Nivona)
+MACHINE_MODEL_NAMES: dict[MachineType, str] = {}  # fallback is capabilities.model_name
+BLE_PREFIXES_ALL: list[str] = ["NIVONA-"]
+
+
+def detect_machine_type_from_name(name: str) -> MachineType | None:
+    """Always returns None — Nivona uses family/capabilities instead of machine type."""
+    return None
+
+
+def get_user_profile_count(machine_type: MachineType | None) -> int:
+    """Always returns 0 — Nivona profile count comes from capabilities.my_coffee_slots."""
+    return 0

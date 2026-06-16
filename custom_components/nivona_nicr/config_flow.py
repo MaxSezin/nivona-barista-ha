@@ -1,4 +1,4 @@
-"""Config flow for the multi-brand coffee-machine integration (Melitta / Nivona)."""
+"""Config flow for the Nivona NICR integration."""
 
 import logging
 from typing import Any
@@ -17,7 +17,6 @@ from homeassistant.config_entries import ConfigFlowResult
 
 from .ble_client import MELITTA_SERVICE_UUID
 from .const import (
-    BLE_PREFIXES_ALL,
     DOMAIN,
     CONF_POLL_INTERVAL,
     CONF_RECONNECT_DELAY,
@@ -49,7 +48,7 @@ from .const import (
     DEFAULT_AUTO_SYNC_DAILY_TIME,
 )
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 PAIR_TIMEOUT = DEFAULT_PAIR_TIMEOUT
 
@@ -134,7 +133,7 @@ def _describe_advertisement(
     }
 
 
-class MelittaBaristaConfigFlow(ConfigFlow, domain=DOMAIN):
+class NivonaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the config flow for Melitta and Nivona coffee machines."""
 
     VERSION = 3
@@ -143,7 +142,7 @@ class MelittaBaristaConfigFlow(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         """Get the options flow handler."""
-        return MelittaOptionsFlow(config_entry)
+        return NivonaOptionsFlow(config_entry)
 
     def __init__(self) -> None:
         self._discovered_devices: dict[str, str] = {}
@@ -242,9 +241,6 @@ class MelittaBaristaConfigFlow(ConfigFlow, domain=DOMAIN):
                     # substrings (pre-regex discovery).
                     if (
                         detect_from_advertisement(device.name) is not None
-                        or any(device.name.startswith(p) for p in BLE_PREFIXES_ALL)
-                        or "melitta" in device.name.lower()
-                        or "barista" in device.name.lower()
                         or "nivona" in device.name.lower()
                     ):
                         self._discovered_devices[device.address] = device.name
@@ -431,7 +427,7 @@ class MelittaBaristaConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-class MelittaOptionsFlow(OptionsFlow):
+class NivonaOptionsFlow(OptionsFlow):
     """Handle the options flow for the coffee-machine integration."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
@@ -576,7 +572,7 @@ class MelittaOptionsFlow(OptionsFlow):
     def _family_override_selector(self):
         """Build a brand-aware family-key dropdown (empty = auto-detect)."""
         from .brands import get_profile  # noqa: PLC0415
-        brand_slug = self._config_entry.data.get(CONF_BRAND, "melitta")
+        brand_slug = self._config_entry.data.get(CONF_BRAND, "nivona")
         try:
             profile = get_profile(brand_slug)
             families = sorted(profile.families.keys())

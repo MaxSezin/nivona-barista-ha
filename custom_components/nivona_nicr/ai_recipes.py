@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 
 from .capabilities import LiveCapabilities
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 LLM_TIMEOUT = 60.0
 

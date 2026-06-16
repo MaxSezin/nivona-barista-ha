@@ -53,7 +53,7 @@ from .const import (
 )
 from .protocol import MachineRecipe, MachineStatus, MelittaProtocol
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 
 def resolve_caps_from_scanner(
@@ -120,7 +120,7 @@ class MelittaBleClient(BleCommandsMixin, BleRecipesMixin, BleSettingsMixin):
         self._client: BleakClient | None = None
         if brand is None:
             from .brands import get_profile  # noqa: PLC0415
-            brand = get_profile("melitta")
+            brand = get_profile("nivona")
         self._brand: BrandProfile = brand
         self._protocol = MelittaProtocol(frame_timeout=frame_timeout, brand=brand)
 

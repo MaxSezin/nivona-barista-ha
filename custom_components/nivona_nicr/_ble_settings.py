@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 else:
     _MixinBase = object
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 
 class BleSettingsMixin(_MixinBase):

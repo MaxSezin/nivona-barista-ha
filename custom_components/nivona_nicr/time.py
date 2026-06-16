@@ -17,7 +17,7 @@ from .entity import MelittaDeviceMixin
 
 PARALLEL_UPDATES = 0  # BLE: single connection, serialize via locks
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 # Protocol setting IDs — verified against the OEM protocol.
 # 20 = read current machine clock (minutes since midnight)

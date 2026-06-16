@@ -15,13 +15,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from bleak.exc import BleakError
 
 from .coffee_platform.contract import CoffeeMachineClient
-from .const import MachineSettingId, MachineType, TS_ONLY_SETTINGS, get_user_profile_count
+from .const import MachineSettingId
 from .entity import MelittaDeviceMixin
 
 
 PARALLEL_UPDATES = 0  # BLE: single connection, serialize via locks
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 SWITCH_DEFINITIONS: list[dict] = [
     {
@@ -57,17 +57,7 @@ async def async_setup_entry(
     entities = [
         MelittaSettingSwitch(client, entry, name, defn)
         for defn in SWITCH_DEFINITIONS
-        if not (
-            defn["id"] in TS_ONLY_SETTINGS
-            and client.machine_type == MachineType.BARISTA_T
-        )
     ]
-
-    # Profile activity switches (profiles 1..N) — Melitta-specific.
-    if "HC" in client.brand.supported_extensions:
-        profile_count = get_user_profile_count(client.machine_type)
-        for i in range(1, profile_count + 1):
-            entities.append(MelittaProfileActivitySwitch(client, entry, name, i))
 
     async_add_entities(entities)
 
@@ -135,70 +125,3 @@ class MelittaSettingSwitch(MelittaDeviceMixin, SwitchEntity):
             self.async_write_ha_state()
 
 
-class MelittaProfileActivitySwitch(MelittaDeviceMixin, SwitchEntity):
-    """Switch to enable/disable a user profile."""
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:account-check"
-    _attr_entity_category = EntityCategory.CONFIG
-    _attr_should_poll = False
-
-    def __init__(
-        self,
-        client: CoffeeMachineClient,
-        entry: ConfigEntry,
-        machine_name: str,
-        profile_id: int,
-    ) -> None:
-        self._client = client
-        self._entry = entry
-        self._machine_name = machine_name
-        self._profile_id = profile_id
-        self._attr_name = f"Profile {profile_id} Active"
-        self._attr_is_on: bool | None = None
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._client.address}_profile_{self._profile_id}_activity"
-
-    @property
-    def available(self) -> bool:
-        return self._client.connected
-
-    async def async_added_to_hass(self) -> None:
-        self._client.add_connection_callback(self._on_connection_change)
-
-    async def async_will_remove_from_hass(self) -> None:
-        self._client.remove_connection_callback(self._on_connection_change)
-
-    @callback
-    def _on_connection_change(self, connected: bool) -> None:
-        if connected:
-            self.hass.async_create_task(self._async_read_value())
-        self.async_write_ha_state()
-
-    async def _async_read_value(self) -> None:
-        """Read profile activity from the machine (once on connect)."""
-        try:
-            value = await self._client.read_profile_activity(self._profile_id)
-            if value is not None:
-                self._attr_is_on = value != 0
-                self.async_write_ha_state()
-        except (BleakError, OSError, asyncio.TimeoutError):
-            _LOGGER.debug("Failed to read activity for profile %d", self._profile_id)
-
-    async def async_turn_on(self, **kwargs) -> None:
-        try:
-            if await self._client.write_profile_activity(self._profile_id, 1):
-                self._attr_is_on = True
-                self.async_write_ha_state()
-        except (BleakError, OSError, asyncio.TimeoutError):
-            _LOGGER.exception("Failed to enable profile %d", self._profile_id)
-
-    async def async_turn_off(self, **kwargs) -> None:
-        try:
-            if await self._client.write_profile_activity(self._profile_id, 0):
-                self._attr_is_on = False
-                self.async_write_ha_state()
-        except (BleakError, OSError, asyncio.TimeoutError):
-            _LOGGER.exception("Failed to disable profile %d", self._profile_id)

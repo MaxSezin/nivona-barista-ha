@@ -1,4 +1,4 @@
-"""Button platform — brew / cancel / maintenance for supported machines."""
+"""Button platform — brew / cancel / maintenance for Nivona machines."""
 
 from __future__ import annotations
 
@@ -8,27 +8,26 @@ import logging
 from bleak.exc import BleakError
 from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from homeassistant.const import CONF_ADDRESS
+from homeassistant.const import CONF_ADDRESS, CONF_NAME
 from .ble_client import resolve_caps_from_scanner
 from .coffee_platform.contract import CoffeeMachineClient
 from .const import (
-    FREESTYLE_RECIPE_TYPE, HE_CMD_FACTORY_RESET_RECIPES,
-    HE_CMD_FACTORY_RESET_SETTINGS, PROMPT_MANIPULATIONS, RECIPE_NAMES,
+    HE_CMD_FACTORY_RESET_RECIPES,
+    HE_CMD_FACTORY_RESET_SETTINGS,
+    PROMPT_MANIPULATIONS,
     MachineProcess,
-    PROCESS_MAP, INTENSITY_MAP, AROMA_MAP, TEMPERATURE_MAP, SHOTS_MAP,
 )
 from .entity import MelittaDeviceMixin
 from .protocol import MachineStatus
 
 
-PARALLEL_UPDATES = 0  # BLE: single connection, serialize via locks
+PARALLEL_UPDATES = 0
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 
 async def async_setup_entry(
@@ -36,44 +35,22 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up button entities for the configured coffee machine."""
+    """Set up button entities for Nivona coffee machine."""
     client: CoffeeMachineClient = entry.runtime_data
     name = entry.data.get(CONF_NAME) or f"{client.brand.brand_name} Coffee Machine"
 
     entities: list[ButtonEntity] = []
-    supports_recipe = "HC" in client.brand.supported_extensions
 
-    # Brew button (works with Recipe select entity) — Melitta-style only.
-    if supports_recipe:
-        entities.append(MelittaBrewButton(client, entry, name))
+    # HE-selector brew button (Nivona uses HE instead of HC)
+    entities.append(NivonaBrewButton(client, entry, name))
 
-    # Brew Freestyle button — requires HJ recipe writes.
-    if "HJ" in client.brand.supported_extensions:
-        entities.append(MelittaBrewFreestyleButton(client, entry, name))
-
-    # HE-selector brew button — for brands that brew recipes via HE
-    # selector instead of HC opcode. Recipe selection comes from
-    # NivonaRecipeSelect at press time. ``HC not in extensions`` is
-    # the contract for "use HE-selector brewing" — any future brand
-    # without HC support takes this path.
-    if "HC" not in client.brand.supported_extensions:
-        entities.append(NivonaBrewButton(client, entry, name))
-
-    # Cancel button — generic
+    # Cancel button
     entities.append(MelittaCancelButton(client, entry, name))
 
-    # Reset current recipe to factory defaults (HD command) — needs recipe context.
-    if supports_recipe:
-        entities.append(MelittaResetRecipeButton(client, entry, name))
-
-    # Confirm machine prompt (HY command) — generic
+    # Confirm machine prompt (HY command)
     entities.append(MelittaConfirmPromptButton(client, entry, name))
 
-    # Setup-time decision: register the Nivona-family buttons whenever
-    # ANY family on the brand advertises the corresponding capability.
-    # Per-family runtime availability is then driven by the connected
-    # machine's capability flag (the buttons' `available` property —
-    # see `_NivonaFactoryResetButtonBase.available`).
+    # Factory reset buttons — only for families that advertise the capability
     brand_supports_factory_reset = any(
         c.supports_factory_reset for c in client.brand.families.values()
     )
@@ -81,10 +58,7 @@ async def async_setup_entry(
         entities.append(NivonaFactoryResetSettingsButton(client, entry, name))
         entities.append(NivonaFactoryResetRecipesButton(client, entry, name))
 
-    # Per-slot MyCoffee brew buttons — register for brands whose profile
-    # exposes a MyCoffee layout (Nivona). Selector resolved as
-    # ``first_mycoffee_selector + slot``. Press is gated at runtime on
-    # the slot's cached ``enabled`` flag.
+    # MyCoffee slot brew buttons
     caps_for_brew = client.capabilities or resolve_caps_from_scanner(
         hass, entry.data.get(CONF_ADDRESS, ""), client.brand,
     )
@@ -95,6 +69,9 @@ async def async_setup_entry(
     ):
         for slot in range(caps_for_brew.my_coffee_slots):
             entities.append(NivonaBrewMyCoffeeButton(client, entry, name, slot))
+
+    # Reset brew overrides button (clears user_set on all override sliders)
+    entities.append(NivonaResetOverridesButton(client, entry, name))
 
     # Maintenance buttons
     entities.append(MelittaMaintenanceButton(
@@ -112,8 +89,6 @@ async def async_setup_entry(
         key="descaling", label="Descaling",
         icon="mdi:water-sync", process=MachineProcess.DESCALING,
     ))
-
-    # Filter operations
     entities.append(MelittaMaintenanceButton(
         client, entry, name,
         key="filter_insert", label="Filter Insert",
@@ -129,15 +104,11 @@ async def async_setup_entry(
         key="filter_remove", label="Filter Remove",
         icon="mdi:filter-remove", process=MachineProcess.FILTER_REMOVE,
     ))
-
-    # Evaporating
     entities.append(MelittaMaintenanceButton(
         client, entry, name,
         key="evaporating", label="Evaporating",
         icon="mdi:air-humidifier", process=MachineProcess.EVAPORATING,
     ))
-
-    # Power off
     entities.append(MelittaMaintenanceButton(
         client, entry, name,
         key="switch_off", label="Switch Off",
@@ -174,102 +145,6 @@ class _MelittaButtonBase(MelittaDeviceMixin, ButtonEntity):
         self.async_write_ha_state()
 
 
-class MelittaBrewButton(_MelittaButtonBase):
-    """Button to brew the recipe selected in the Recipe select entity."""
-
-    _attr_name = "Brew"
-    _attr_icon = "mdi:coffee"
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._client.address}_brew"
-
-    @property
-    def available(self) -> bool:
-        return (
-            self._client.connected
-            and self._client.status is not None
-            and self._client.status.is_ready
-            and self._client.selected_recipe is not None
-        )
-
-    async def async_press(self) -> None:
-        recipe_id = self._client.selected_recipe
-        if recipe_id is None:
-            _LOGGER.warning("No recipe selected, cannot brew")
-            return
-        recipe_name = RECIPE_NAMES.get(recipe_id, recipe_id.name)
-        _LOGGER.info("Brewing %s", recipe_name)
-        try:
-            success = await self._client.brew_recipe(recipe_id)
-            if not success:
-                _LOGGER.error("Failed to start brewing %s", recipe_name)
-        except (BleakError, OSError, asyncio.TimeoutError):
-            _LOGGER.exception("BLE error while brewing %s", recipe_name)
-
-
-_PROCESS_MAP = PROCESS_MAP
-_INTENSITY_MAP = INTENSITY_MAP
-_AROMA_MAP = AROMA_MAP
-_TEMPERATURE_MAP = TEMPERATURE_MAP
-_SHOTS_MAP = SHOTS_MAP
-
-
-class MelittaBrewFreestyleButton(_MelittaButtonBase):
-    """Button to brew a freestyle recipe using current freestyle entity values."""
-
-    _attr_name = "Brew Freestyle"
-    _attr_icon = "mdi:coffee-maker-outline"
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._client.address}_brew_freestyle"
-
-    @property
-    def available(self) -> bool:
-        return (
-            self._client.connected
-            and self._client.status is not None
-            and self._client.status.is_ready
-        )
-
-    async def async_press(self) -> None:
-        from .protocol import RecipeComponent  # noqa: PLC0415
-
-        c = self._client
-        comp1 = RecipeComponent(
-            process=_PROCESS_MAP.get(c.freestyle_process1, 1),
-            shots=_SHOTS_MAP.get(c.freestyle_shots1, 1),
-            blend=1,
-            intensity=_INTENSITY_MAP.get(c.freestyle_intensity1, 2),
-            aroma=_AROMA_MAP.get(c.freestyle_aroma1, 0),
-            temperature=_TEMPERATURE_MAP.get(c.freestyle_temperature1, 1),
-            portion=c.freestyle_portion1_ml // 5,
-        )
-        comp2 = RecipeComponent(
-            process=_PROCESS_MAP.get(c.freestyle_process2, 0),
-            shots=_SHOTS_MAP.get(c.freestyle_shots2, 0),
-            blend=0,
-            intensity=_INTENSITY_MAP.get(c.freestyle_intensity2, 2),
-            aroma=_AROMA_MAP.get(c.freestyle_aroma2, 0),
-            temperature=_TEMPERATURE_MAP.get(c.freestyle_temperature2, 1),
-            portion=c.freestyle_portion2_ml // 5,
-        )
-
-        _LOGGER.info("Brewing freestyle: %s", c.freestyle_name)
-        try:
-            success = await c.brew_freestyle(
-                name=c.freestyle_name,
-                recipe_type=FREESTYLE_RECIPE_TYPE,
-                component1=comp1,
-                component2=comp2,
-            )
-            if not success:
-                _LOGGER.error("Failed to brew freestyle recipe")
-        except (BleakError, OSError, asyncio.TimeoutError):
-            _LOGGER.exception("BLE error while brewing freestyle")
-
-
 class MelittaCancelButton(_MelittaButtonBase):
     """Button to cancel current operation."""
 
@@ -296,60 +171,13 @@ class MelittaCancelButton(_MelittaButtonBase):
                 _LOGGER.exception("BLE error while cancelling")
 
 
-class MelittaResetRecipeButton(_MelittaButtonBase):
-    """Reset the currently selected recipe to factory defaults (HD)."""
-
-    _attr_name = "Reset Recipe"
-    _attr_icon = "mdi:restore"
-    _attr_entity_category = EntityCategory.CONFIG
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._client.address}_reset_recipe"
-
-    @property
-    def available(self) -> bool:
-        return (
-            self._client.connected
-            and self._client.status is not None
-            and self._client.status.is_ready
-            and self._client.selected_recipe is not None
-        )
-
-    async def async_press(self) -> None:
-        recipe_id = self._client.selected_recipe
-        if recipe_id is None:
-            _LOGGER.warning("No recipe selected, cannot reset")
-            return
-        recipe_name = RECIPE_NAMES.get(recipe_id, str(int(recipe_id)))
-        _LOGGER.info("Resetting recipe %s to defaults", recipe_name)
-        try:
-            success = await self._client.reset_recipe_default(int(recipe_id))
-            if not success:
-                _LOGGER.warning(
-                    "Reset recipe %s: machine returned NACK or timeout",
-                    recipe_name,
-                )
-        except (BleakError, OSError, asyncio.TimeoutError):
-            _LOGGER.exception("BLE error while resetting recipe %s", recipe_name)
-
-
-
 class _NivonaFactoryResetButtonBase(_MelittaButtonBase):
-    """Shared base for the two Nivona factory-reset buttons.
-
-    Both buttons send the same HE opcode with different 18-byte
-    command-id payloads (see `protocol._build_he_command_payload`).
-    Available only on families that advertise
-    ``MachineCapabilities.supports_factory_reset`` (NIVO 8000 has no
-    factory-reset menu in the vendor app, so its capability is False).
-    """
+    """Shared base for the two Nivona factory-reset buttons."""
 
     _attr_entity_category = EntityCategory.CONFIG
     _attr_device_class = ButtonDeviceClass.RESTART
     _attr_icon = "mdi:restore-alert"
 
-    # Subclasses provide these.
     _command_id: int = 0
     _slug: str = ""
     _log_label: str = ""
@@ -364,8 +192,6 @@ class _NivonaFactoryResetButtonBase(_MelittaButtonBase):
             return False
         caps = getattr(self._client, "capabilities", None)
         if caps is None:
-            # Capability hasn't resolved yet (usually moments after
-            # connect). Stay unavailable until we know.
             return False
         return caps.supports_factory_reset
 
@@ -377,21 +203,13 @@ class _NivonaFactoryResetButtonBase(_MelittaButtonBase):
         try:
             success = await self._client.execute_he_command(self._command_id)
         except (BleakError, OSError, asyncio.TimeoutError):
-            _LOGGER.exception(
-                "BLE error during factory reset %s", self._log_label,
-            )
+            _LOGGER.exception("BLE error during factory reset %s", self._log_label)
             return
         if not success:
-            _LOGGER.warning(
-                "Factory reset %s returned NACK or timeout — machine "
-                "may not be in a ready state",
-                self._log_label,
-            )
+            _LOGGER.warning("Factory reset %s returned NACK or timeout", self._log_label)
 
 
 class NivonaFactoryResetSettingsButton(_NivonaFactoryResetButtonBase):
-    """Reset machine-wide settings to factory defaults (HE commandId 50)."""
-
     _attr_name = "Factory Reset Settings"
     _command_id = HE_CMD_FACTORY_RESET_SETTINGS
     _slug = "settings"
@@ -399,8 +217,6 @@ class NivonaFactoryResetSettingsButton(_NivonaFactoryResetButtonBase):
 
 
 class NivonaFactoryResetRecipesButton(_NivonaFactoryResetButtonBase):
-    """Reset per-recipe customizations to factory defaults (HE commandId 51)."""
-
     _attr_name = "Factory Reset Recipes"
     _command_id = HE_CMD_FACTORY_RESET_RECIPES
     _slug = "recipes"
@@ -408,7 +224,7 @@ class NivonaFactoryResetRecipesButton(_NivonaFactoryResetButtonBase):
 
 
 class MelittaConfirmPromptButton(_MelittaButtonBase):
-    """Confirm an active machine prompt (move cup, flush, fill water...) via HY."""
+    """Confirm an active machine prompt via HY."""
 
     _attr_name = "Confirm Prompt"
     _attr_icon = "mdi:check-circle-outline"
@@ -433,10 +249,7 @@ class MelittaConfirmPromptButton(_MelittaButtonBase):
         try:
             success = await self._client.confirm_prompt()
             if not success:
-                _LOGGER.warning(
-                    "Confirm prompt %s: machine returned NACK or timeout",
-                    manip.name,
-                )
+                _LOGGER.warning("Confirm prompt %s: machine returned NACK or timeout", manip.name)
         except (BleakError, OSError, asyncio.TimeoutError):
             _LOGGER.exception("BLE error while confirming prompt %s", manip.name)
 
@@ -447,7 +260,9 @@ class NivonaBrewButton(_MelittaButtonBase):
     _attr_name = "Brew"
     _attr_icon = "mdi:coffee"
 
-    _OVERRIDE_FIELDS = ("strength", "coffee_amount", "temperature", "milk_amount")
+    _OVERRIDE_FIELDS = (
+        "strength", "coffee_amount", "water_amount", "temperature", "milk_amount",
+    )
 
     @property
     def unique_id(self) -> str:
@@ -456,10 +271,13 @@ class NivonaBrewButton(_MelittaButtonBase):
     def _collect_user_overrides(self, registry) -> dict:
         """Collect overrides from NivonaBrewOverrideNumber entities.
 
-        Only includes fields the user explicitly set (via the slider);
-        defaults are skipped so the machine uses its saved recipe.
+        If ANY field has user_set=True (triggering temp-recipe mode), ALL
+        current slider values are included so the machine receives a complete
+        temp recipe and does not fall back to hardware defaults for unset fields.
         """
-        overrides: dict = {}
+        field_states: dict[str, int] = {}
+        has_user_set = False
+
         for field in self._OVERRIDE_FIELDS:
             uid = f"{self._client.address}_brew_{field}"
             for eid, reg_entry in registry.entities.items():
@@ -468,17 +286,30 @@ class NivonaBrewButton(_MelittaButtonBase):
                 st = self.hass.states.get(eid)
                 if not st or st.state in (None, "unknown", "unavailable"):
                     break
-                if not st.attributes.get("user_set"):
-                    break
                 try:
-                    overrides[field] = int(float(st.state))
+                    field_states[field] = int(float(st.state))
                 except ValueError:
-                    pass
+                    break
+                if st.attributes.get("user_set"):
+                    has_user_set = True
                 break
-        return overrides
+
+        if not has_user_set:
+            return {}
+
+        # When temp-recipe mode is triggered, send ALL current slider values
+        # to prevent the machine from filling unset fields with hardware defaults.
+        return field_states
+
+    @property
+    def available(self) -> bool:
+        return (
+            self._client.connected
+            and self._client.status is not None
+            and self._client.status.is_ready
+        )
 
     async def async_press(self) -> None:
-        # Locate the recipe select entity in HA's state machine
         from homeassistant.helpers import entity_registry as er
         registry = er.async_get(self.hass)
         target_uid = f"{self._client.address}_nivona_recipe_select"
@@ -515,6 +346,46 @@ class NivonaBrewButton(_MelittaButtonBase):
                 _LOGGER.error("Nivona brew failed for recipe_id=%d", recipe_id)
         except (BleakError, OSError, asyncio.TimeoutError):
             _LOGGER.exception("BLE error during Nivona brew")
+
+
+class NivonaResetOverridesButton(_MelittaButtonBase):
+    """Reset all brew override sliders — clears user_set so next brew uses machine defaults."""
+
+    _attr_name = "Reset Brew Overrides"
+    _attr_icon = "mdi:restore"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    _OVERRIDE_FIELDS = (
+        "strength", "coffee_amount", "water_amount", "temperature", "milk_amount",
+    )
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._client.address}_reset_brew_overrides"
+
+    @property
+    def available(self) -> bool:
+        return True  # always available so user can reset even when disconnected
+
+    async def async_press(self) -> None:
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.helpers import entity_component as ec
+        registry = er.async_get(self.hass)
+
+        for field in self._OVERRIDE_FIELDS:
+            uid = f"{self._client.address}_brew_{field}"
+            for eid, reg_entry in registry.entities.items():
+                if reg_entry.unique_id != uid:
+                    continue
+                # Retrieve the live entity object from hass entity platform
+                entity_obj = self.hass.states.get(eid)
+                if entity_obj is not None:
+                    # Fire an event that NivonaBrewOverrideNumber listens for
+                    self.hass.bus.async_fire(
+                        f"nivona_nicr_reset_override_{uid}",
+                    )
+                break
+        _LOGGER.info("Brew overrides reset — user_set cleared on all sliders")
 
 
 class MelittaMaintenanceButton(_MelittaButtonBase):
@@ -568,15 +439,7 @@ class MelittaMaintenanceButton(_MelittaButtonBase):
 
 
 class NivonaBrewMyCoffeeButton(_MelittaButtonBase):
-    """Brew a saved MyCoffee recipe by slot (Nivona only).
-
-    One button per slot 0..N-1, where N is the family's
-    `my_coffee_slots`. Gated at runtime on:
-    - client.connected
-    - machine status `is_ready_for_brew`
-    - the slot's cached `enabled` flag (so slots that aren't armed
-      stay unavailable instead of firing an empty recipe)
-    """
+    """Brew a saved MyCoffee recipe by slot (Nivona only)."""
 
     _attr_icon = "mdi:coffee-to-go"
 
@@ -600,8 +463,6 @@ class NivonaBrewMyCoffeeButton(_MelittaButtonBase):
         if not self._client.connected:
             return False
         status = self._client.status
-        # Be permissive on tolerated manipulation flags so the button
-        # follows the same readiness contract as the main brew button.
         caps = getattr(self._client, "capabilities", None)
         tolerated = caps.tolerated_brew_manipulations if caps else ()
         if status is None or not status.is_ready_for_brew(tolerated):
@@ -616,10 +477,6 @@ class NivonaBrewMyCoffeeButton(_MelittaButtonBase):
         try:
             success = await self._client.brew_mycoffee_slot(self._slot)
             if not success:
-                _LOGGER.error(
-                    "Failed to start MyCoffee brew for slot %d", self._slot + 1,
-                )
+                _LOGGER.error("Failed to start MyCoffee brew for slot %d", self._slot + 1)
         except (BleakError, OSError, asyncio.TimeoutError):
-            _LOGGER.exception(
-                "BLE error while brewing MyCoffee slot %d", self._slot + 1,
-            )
+            _LOGGER.exception("BLE error while brewing MyCoffee slot %d", self._slot + 1)

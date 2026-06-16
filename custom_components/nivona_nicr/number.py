@@ -1,4 +1,4 @@
-"""Number platform — machine settings (energy saving, portions, overrides)."""
+"""Number platform — machine settings and brew overrides for Nivona."""
 
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ from .const import MachineSettingId
 from .entity import MelittaDeviceMixin
 
 
-PARALLEL_UPDATES = 0  # BLE: single connection, serialize via locks
+PARALLEL_UPDATES = 0
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 
 SETTING_DEFINITIONS: list[dict] = [
@@ -85,36 +85,24 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up number entities for the configured coffee machine."""
+    """Set up number entities for Nivona coffee machine."""
     client: CoffeeMachineClient = entry.runtime_data
     name = entry.data.get(CONF_NAME) or f"{client.brand.brand_name} Coffee Machine"
 
-    # Settings (HR/HW) — generic Eugster, every brand supports them.
     entities: list = [
         MelittaSettingNumber(client, entry, name, defn)
         for defn in SETTING_DEFINITIONS
     ]
-    # Brand-capability-driven numeric settings (Nivona 111/112 AutoOn
-    # hours/minutes and any future options-less setting descriptor).
-    # Options-bearing descriptors become selects in select.py; here we
-    # handle only the raw-number ones.
+
+    # Brand-capability-driven numeric settings (Nivona AutoOn hours/minutes etc.)
     caps = client.capabilities
-    # Generic capability-driven setting numbers — register for brands
-    # whose families publish a non-empty settings tuple (Nivona). Melitta
-    # has its own hand-tailored MachineSettingNumber entities below and
-    # leaves `caps.settings = ()`, so this block naturally skips it.
     if caps is not None and caps.settings:
         for descriptor in caps.settings:
             if descriptor.options:
                 continue
-            entities.append(
-                BrandSettingNumber(client, entry, name, descriptor),
-            )
+            entities.append(BrandSettingNumber(client, entry, name, descriptor))
 
-    # Brew-override inputs — register for families that support per-brew
-    # temp-recipe overrides (currently every Nivona family; Melitta uses
-    # its own HC/HJ write path). Falls back to scanner-cached caps when
-    # `client.capabilities` is None at platform-setup time.
+    # Brew-override sliders — register for families that support temp-recipe overrides
     caps_for_overrides = client.capabilities or resolve_caps_from_scanner(
         hass, entry.data.get(CONF_ADDRESS, ""), client.brand,
     )
@@ -131,6 +119,10 @@ async def async_setup_entry(
             "mdi:cup-water", 20, 240, 5, default=40, unit="mL",
         ))
         entities.append(NivonaBrewOverrideNumber(
+            client, entry, name, "water_amount", "Brew Water Amount",
+            "mdi:water", 0, 240, 5, default=100, unit="mL",
+        ))
+        entities.append(NivonaBrewOverrideNumber(
             client, entry, name, "temperature", "Brew Temperature Preset",
             "mdi:thermometer", 0, 2, 1, default=1,
         ))
@@ -139,16 +131,6 @@ async def async_setup_entry(
             "mdi:cup", 0, 240, 5, default=80, unit="mL",
         ))
 
-    # Freestyle portion entities require HJ recipe writes.
-    if "HJ" in client.brand.supported_extensions:
-        entities.append(MelittaFreestyleNumber(
-            client, entry, name, "portion_1", "Freestyle Portion 1",
-            "mdi:cup-water", 5, 250, 5, "freestyle_portion1_ml",
-        ))
-        entities.append(MelittaFreestyleNumber(
-            client, entry, name, "portion_2", "Freestyle Portion 2",
-            "mdi:cup-water", 0, 250, 5, "freestyle_portion2_ml",
-        ))
     async_add_entities(entities)
 
 
@@ -201,7 +183,6 @@ class MelittaSettingNumber(MelittaDeviceMixin, NumberEntity):
         self.async_write_ha_state()
 
     async def _async_read_value(self) -> None:
-        """Read setting from the machine (once on connect)."""
         try:
             value = await self._client.read_setting(self._setting_id)
             if value is not None:
@@ -217,13 +198,7 @@ class MelittaSettingNumber(MelittaDeviceMixin, NumberEntity):
 
 
 class BrandSettingNumber(MelittaDeviceMixin, NumberEntity):
-    """Number entity for a brand capability setting without a discrete
-    options list (e.g. AutoOn hour / minute fields on Nivona 900 /
-    900-Light / 1030 / 1040).
-
-    Range is derived from the key name — hours → 0..23, minutes → 0..59,
-    otherwise 0..255 as a safe fallback.
-    """
+    """Number entity for a brand capability setting without a discrete options list."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -289,7 +264,7 @@ class BrandSettingNumber(MelittaDeviceMixin, NumberEntity):
             if value is not None:
                 self._attr_native_value = float(value)
                 self.async_write_ha_state()
-        except Exception:  # noqa: BLE001 — defensive against driver errors
+        except Exception:
             _LOGGER.debug("BrandSettingNumber read failed id=%d", self._setting_id)
 
     async def async_set_native_value(self, value: float) -> None:
@@ -300,70 +275,13 @@ class BrandSettingNumber(MelittaDeviceMixin, NumberEntity):
             self.async_write_ha_state()
 
 
-class MelittaFreestyleNumber(MelittaDeviceMixin, NumberEntity):
-    """Number entity for a freestyle recipe portion parameter."""
-
-    _attr_has_entity_name = True
-    _attr_mode = NumberMode.BOX
-    _attr_native_unit_of_measurement = "ml"
-
-    def __init__(
-        self,
-        client: CoffeeMachineClient,
-        entry: ConfigEntry,
-        machine_name: str,
-        key: str,
-        label: str,
-        icon: str,
-        min_val: int,
-        max_val: int,
-        step: int,
-        client_attr: str,
-    ) -> None:
-        self._client = client
-        self._entry = entry
-        self._machine_name = machine_name
-        self._key = key
-        self._client_attr = client_attr
-        self._attr_name = label
-        self._attr_icon = icon
-        self._attr_native_min_value = min_val
-        self._attr_native_max_value = max_val
-        self._attr_native_step = step
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._client.address}_freestyle_{self._key}"
-
-    @property
-    def native_value(self) -> float | None:
-        return float(getattr(self._client, self._client_attr, 0))
-
-    @property
-    def available(self) -> bool:
-        return self._client.connected
-
-    async def async_added_to_hass(self) -> None:
-        self._client.add_connection_callback(self._on_connection_change)
-
-    async def async_will_remove_from_hass(self) -> None:
-        self._client.remove_connection_callback(self._on_connection_change)
-
-    @callback
-    def _on_connection_change(self, connected: bool) -> None:
-        self.async_write_ha_state()
-
-    async def async_set_native_value(self, value: float) -> None:
-        setattr(self._client, self._client_attr, int(value))
-        self.async_write_ha_state()
-
-
 class NivonaBrewOverrideNumber(MelittaDeviceMixin, NumberEntity, RestoreEntity):
     """Persistent number for Nivona brew overrides (HW temp-recipe writes).
 
-    Holds a user-chosen value (strength / coffee_amount / temperature / etc.)
-    that NivonaBrewButton reads at press time and writes via HW before HE.
-    Survives restarts via HA's RestoreEntity.
+    Survives restarts via HA's RestoreEntity. The user_set flag tracks whether
+    the user explicitly changed this value. NivonaBrewButton uses it to decide
+    whether to activate temp-recipe mode. Press 'Reset Brew Overrides' button
+    to clear all user_set flags and return to machine-native recipe values.
     """
 
     _attr_has_entity_name = True
@@ -398,7 +316,6 @@ class NivonaBrewOverrideNumber(MelittaDeviceMixin, NumberEntity, RestoreEntity):
 
     @property
     def is_user_set(self) -> bool:
-        """True if the user has explicitly set this value (vs. default)."""
         return self._user_set
 
     @property
@@ -415,6 +332,21 @@ class NivonaBrewOverrideNumber(MelittaDeviceMixin, NumberEntity, RestoreEntity):
                 pass
             if last.attributes.get("user_set"):
                 self._user_set = True
+        # Subscribe to reset events fired by NivonaResetOverridesButton
+        uid = self._attr_unique_id
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                f"nivona_nicr_reset_override_{uid}",
+                self._handle_reset_event,
+            )
+        )
+
+    @callback
+    def _handle_reset_event(self, event) -> None:
+        """Clear user_set flag and restore default when reset button is pressed."""
+        self._user_set = False
+        self._attr_native_value = self._default
+        self.async_write_ha_state()
 
     async def async_set_native_value(self, value: float) -> None:
         self._attr_native_value = value

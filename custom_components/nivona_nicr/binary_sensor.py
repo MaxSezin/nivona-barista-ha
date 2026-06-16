@@ -20,7 +20,7 @@ from .protocol import MachineStatus
 
 PARALLEL_UPDATES = 0  # BLE: single connection, serialize via locks
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 
 async def async_setup_entry(

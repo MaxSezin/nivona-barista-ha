@@ -50,7 +50,7 @@ from . import (
 )
 
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 
 # ---------------------------------------------------------------------------

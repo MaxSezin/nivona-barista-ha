@@ -28,7 +28,7 @@ from .const import (
 )
 from .protocol import MachineRecipe, RecipeComponent
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 
 # Param keys (and `<key>_offset` attribute names on RecipeFieldLayout)

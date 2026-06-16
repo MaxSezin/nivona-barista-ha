@@ -47,7 +47,7 @@ from .const import (
     FeatureFlags,
 )
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 # Known commands with expected RECEIVE payload sizes and encryption flag
 # From Melitta BLE protocol analysis.
@@ -239,7 +239,7 @@ class EugsterProtocol:
         # not need protocol, but protocol needs brands at runtime.
         if brand is None:
             from .brands import get_profile  # noqa: PLC0415
-            brand = get_profile("melitta")
+            brand = get_profile("nivona")
         self._brand: BrandProfile = brand
         self._family: str | None = None
 

@@ -16,7 +16,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN, PROCESS_MAP, SHOTS_MAP, INTENSITY_MAP, AROMA_MAP, TEMPERATURE_MAP
 from .panel_api import _send_versioned
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 
 def _find_client(hass: HomeAssistant):
@@ -185,7 +185,7 @@ async def _async_get_db(hass: HomeAssistant):
 
     from .sommelier_db import SommelierDB
 
-    db_path = hass.config.path("melitta_barista_sommelier.db")
+    db_path = hass.config.path("nivona_nicr_sommelier.db")
     db = SommelierDB(db_path)
     await db.async_setup()
     domain_data["sommelier_db"] = db
@@ -238,7 +238,7 @@ def async_register_websocket_handlers(hass: HomeAssistant) -> None:
 # ── Beans ─────────────────────────────────────────────────────────────
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "melitta_barista/sommelier/beans/list"}
+    {vol.Required("type"): "nivona_nicr/sommelier/beans/list"}
 )
 @websocket_api.async_response
 async def ws_beans_list(
@@ -254,7 +254,7 @@ async def ws_beans_list(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/beans/add",
+        vol.Required("type"): "nivona_nicr/sommelier/beans/add",
         **BEAN_SCHEMA,
     }
 )
@@ -281,7 +281,7 @@ async def ws_beans_add(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/beans/update",
+        vol.Required("type"): "nivona_nicr/sommelier/beans/update",
         vol.Required("bean_id"): cv.string,
         vol.Optional("brand"): cv.string,
         vol.Optional("product"): cv.string,
@@ -324,7 +324,7 @@ async def ws_beans_update(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/beans/delete",
+        vol.Required("type"): "nivona_nicr/sommelier/beans/delete",
         vol.Required("bean_id"): cv.string,
     }
 )
@@ -347,7 +347,7 @@ async def ws_beans_delete(
 # ── Hoppers ───────────────────────────────────────────────────────────
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "melitta_barista/sommelier/hoppers/get"}
+    {vol.Required("type"): "nivona_nicr/sommelier/hoppers/get"}
 )
 @websocket_api.async_response
 async def ws_hoppers_get(
@@ -364,7 +364,7 @@ async def ws_hoppers_get(
 # ── Capabilities ──────────────────────────────────────────────────────
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/capabilities/get",
+    vol.Required("type"): "nivona_nicr/capabilities/get",
     vol.Required("entry_id"): cv.string,
 })
 @websocket_api.async_response
@@ -450,7 +450,7 @@ async def ws_capabilities_get(hass, connection, msg) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/hoppers/assign",
+        vol.Required("type"): "nivona_nicr/sommelier/hoppers/assign",
         vol.Required("hopper_id"): vol.In([1, 2]),
         vol.Optional("bean_id"): vol.Any(cv.string, None),
     }
@@ -471,7 +471,7 @@ async def ws_hoppers_assign(
 # ── Milk ──────────────────────────────────────────────────────────────
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "melitta_barista/sommelier/milk/get"}
+    {vol.Required("type"): "nivona_nicr/sommelier/milk/get"}
 )
 @websocket_api.async_response
 async def ws_milk_get(
@@ -487,7 +487,7 @@ async def ws_milk_get(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/milk/set",
+        vol.Required("type"): "nivona_nicr/sommelier/milk/set",
         # Free-form list of milk type names. The legacy VALID_MILK_TYPES
         # whitelist (8 English-only values) was rejecting Russian / brand
         # names like "Ультрапастеризованное 3%"; the panel's milk manager
@@ -511,7 +511,7 @@ async def ws_milk_set(
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "melitta_barista/sommelier/milk/list_full"}
+    {vol.Required("type"): "nivona_nicr/sommelier/milk/list_full"}
 )
 @websocket_api.async_response
 async def ws_milk_list_full(
@@ -533,7 +533,7 @@ async def ws_milk_list_full(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/milk/set_available",
+        vol.Required("type"): "nivona_nicr/sommelier/milk/set_available",
         vol.Required("milk_type"): cv.string,
         vol.Required("available"): bool,
     }
@@ -555,7 +555,7 @@ async def ws_milk_set_available(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/generate",
+        vol.Required("type"): "nivona_nicr/sommelier/generate",
         vol.Optional("mode", default="surprise_me"): vol.In(VALID_MODES),
         vol.Optional("preference"): cv.string,
         vol.Optional("count", default=3): vol.All(
@@ -833,7 +833,7 @@ async def ws_generate(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/brew",
+        vol.Required("type"): "nivona_nicr/sommelier/brew",
         vol.Required("recipe_id"): cv.string,
     }
 )
@@ -886,7 +886,7 @@ async def ws_brew(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/favorites/list",
+        vol.Required("type"): "nivona_nicr/sommelier/favorites/list",
         vol.Optional("machine_profile_filter"): int,
     }
 )
@@ -906,7 +906,7 @@ async def ws_favorites_list(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/favorites/add",
+        vol.Required("type"): "nivona_nicr/sommelier/favorites/add",
         vol.Required("recipe_id"): cv.string,
         vol.Optional("machine_profile"): int,
     }
@@ -952,7 +952,7 @@ async def ws_favorites_add(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/favorites/remove",
+        vol.Required("type"): "nivona_nicr/sommelier/favorites/remove",
         vol.Required("favorite_id"): cv.string,
     }
 )
@@ -973,7 +973,7 @@ async def ws_favorites_remove(
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/sommelier/favorites/update",
+    vol.Required("type"): "nivona_nicr/sommelier/favorites/update",
     vol.Required("favorite_id"): cv.string,
     vol.Optional("name"): cv.string,
     vol.Optional("description"): cv.string,
@@ -1001,7 +1001,7 @@ async def ws_favorites_update(hass, connection, msg) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/favorites/brew",
+        vol.Required("type"): "nivona_nicr/sommelier/favorites/brew",
         vol.Required("favorite_id"): cv.string,
     }
 )
@@ -1054,7 +1054,7 @@ async def ws_favorites_brew(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/history/list",
+        vol.Required("type"): "nivona_nicr/sommelier/history/list",
         vol.Optional("limit", default=20): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=100)
         ),
@@ -1081,7 +1081,7 @@ async def ws_history_list(
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/sommelier/history/clear",
+    vol.Required("type"): "nivona_nicr/sommelier/history/clear",
     vol.Optional("keep_favorited", default=True): bool,
 })
 @websocket_api.require_admin
@@ -1110,7 +1110,7 @@ def _load_bean_presets_sync() -> list[dict[str, Any]]:
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "melitta_barista/sommelier/bean_presets/list"}
+    {vol.Required("type"): "nivona_nicr/sommelier/bean_presets/list"}
 )
 @websocket_api.async_response
 async def ws_bean_presets_list(
@@ -1138,7 +1138,7 @@ async def ws_bean_presets_list(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/presets/list",
+        vol.Required("type"): "nivona_nicr/sommelier/presets/list",
         vol.Optional("machine_profile_filter"): int,
     }
 )
@@ -1164,7 +1164,7 @@ async def ws_presets_list(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/presets/add",
+        vol.Required("type"): "nivona_nicr/sommelier/presets/add",
         vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=80)),
         vol.Optional("description"): vol.All(cv.string, vol.Length(max=500)),
         vol.Required("payload"): dict,
@@ -1191,7 +1191,7 @@ async def ws_presets_add(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/presets/update",
+        vol.Required("type"): "nivona_nicr/sommelier/presets/update",
         vol.Required("preset_id"): cv.string,
         vol.Optional("name"): vol.All(cv.string, vol.Length(min=1, max=80)),
         vol.Optional("description"): vol.All(cv.string, vol.Length(max=500)),
@@ -1234,7 +1234,7 @@ async def ws_presets_update(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/presets/delete",
+        vol.Required("type"): "nivona_nicr/sommelier/presets/delete",
         vol.Required("preset_id"): cv.string,
     }
 )
@@ -1269,7 +1269,7 @@ async def ws_presets_delete(
 # ── Settings ──────────────────────────────────────────────────────────
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "melitta_barista/sommelier/settings/get"}
+    {vol.Required("type"): "nivona_nicr/sommelier/settings/get"}
 )
 @websocket_api.async_response
 async def ws_settings_get(
@@ -1285,7 +1285,7 @@ async def ws_settings_get(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/settings/set",
+        vol.Required("type"): "nivona_nicr/sommelier/settings/set",
         vol.Required("key"): vol.In(VALID_SETTING_KEYS),
         vol.Required("value"): cv.string,
     }
@@ -1306,7 +1306,7 @@ async def ws_settings_set(
 # ── Extras ───────────────────────────────────────────────────────────
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "melitta_barista/sommelier/extras/get"}
+    {vol.Required("type"): "nivona_nicr/sommelier/extras/get"}
 )
 @websocket_api.async_response
 async def ws_extras_get(
@@ -1322,7 +1322,7 @@ async def ws_extras_get(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/extras/set",
+        vol.Required("type"): "nivona_nicr/sommelier/extras/set",
         vol.Required("category"): vol.In(VALID_EXTRAS_CATEGORIES),
         vol.Required("items"): vol.All(cv.ensure_list, [cv.string]),
     }
@@ -1344,7 +1344,7 @@ async def ws_extras_set(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/recipe/rate",
+        vol.Required("type"): "nivona_nicr/sommelier/recipe/rate",
         vol.Required("target_id"): cv.string,
         vol.Required("target_type"): vol.In(["generated", "favorite"]),
         vol.Required("rating"): vol.All(int, vol.Range(min=1, max=5)),
@@ -1375,7 +1375,7 @@ async def ws_recipe_rate(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/recipe/unrate",
+        vol.Required("type"): "nivona_nicr/sommelier/recipe/unrate",
         vol.Required("target_id"): cv.string,
         vol.Required("target_type"): vol.In(["generated", "favorite"]),
     }
@@ -1396,7 +1396,7 @@ async def ws_recipe_unrate(
 # ── Preferences ──────────────────────────────────────────────────────
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "melitta_barista/sommelier/preferences/get"}
+    {vol.Required("type"): "nivona_nicr/sommelier/preferences/get"}
 )
 @websocket_api.async_response
 async def ws_preferences_get(
@@ -1412,7 +1412,7 @@ async def ws_preferences_get(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/preferences/set",
+        vol.Required("type"): "nivona_nicr/sommelier/preferences/set",
         vol.Required("key"): vol.In(VALID_PREFERENCE_KEYS),
         vol.Required("value"): cv.string,
     }
@@ -1433,7 +1433,7 @@ async def ws_preferences_set(
 # ── Profiles ─────────────────────────────────────────────────────────
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "melitta_barista/sommelier/profiles/list"}
+    {vol.Required("type"): "nivona_nicr/sommelier/profiles/list"}
 )
 @websocket_api.async_response
 async def ws_profiles_list(
@@ -1449,7 +1449,7 @@ async def ws_profiles_list(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/profiles/add",
+        vol.Required("type"): "nivona_nicr/sommelier/profiles/add",
         vol.Required("name"): cv.string,
         vol.Optional("preferences", default={}): dict,
     }
@@ -1476,7 +1476,7 @@ async def ws_profiles_add(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/profiles/update",
+        vol.Required("type"): "nivona_nicr/sommelier/profiles/update",
         vol.Required("profile_id"): cv.string,
         vol.Optional("name"): cv.string,
         vol.Optional("preferences"): dict,
@@ -1507,7 +1507,7 @@ async def ws_profiles_update(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/profiles/delete",
+        vol.Required("type"): "nivona_nicr/sommelier/profiles/delete",
         vol.Required("profile_id"): cv.string,
     }
 )
@@ -1529,7 +1529,7 @@ async def ws_profiles_delete(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "melitta_barista/sommelier/profiles/activate",
+        vol.Required("type"): "nivona_nicr/sommelier/profiles/activate",
         vol.Required("profile_id"): cv.string,
     }
 )

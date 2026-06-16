@@ -37,7 +37,7 @@ from .const import (
     get_directkey_id,
 )
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 # Reverse-lookup tables (int → string) for serialising recipe components.
 _SHOTS_NAMES = {v: k for k, v in SHOTS_MAP.items()}
@@ -88,7 +88,7 @@ def _process_name(value: int | None) -> str | None:
 def _send_versioned(connection, msg_id, data, *, schema_version: int = 1) -> None:
     """Send a WS result with the per-endpoint schema_version envelope.
 
-    All `melitta_barista/*` responses ship `schema_version` starting in
+    All `nivona_nicr/*` responses ship `schema_version` starting in
     0.67.0; consumers pin against this per-endpoint version to detect
     breaking changes without forcing a bump of the integration-wide
     API_VERSION. Default is 1 — bump only when an endpoint's response
@@ -429,7 +429,7 @@ def _now_iso() -> str:
 # producers ----------------------------------------------------------------
 
 
-@websocket_api.websocket_command({vol.Required("type"): "melitta_barista/producers/list"})
+@websocket_api.websocket_command({vol.Required("type"): "nivona_nicr/producers/list"})
 @websocket_api.async_response
 async def _ws_producers_list(hass, connection, msg):
     """Return the list of coffee producers (name, country, website, notes)."""
@@ -447,7 +447,7 @@ async def _ws_producers_list(hass, connection, msg):
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/producers/add",
+    vol.Required("type"): "nivona_nicr/producers/add",
     vol.Required("name"): str,
     vol.Optional("country"): str,
     vol.Optional("website"): str,
@@ -471,7 +471,7 @@ async def _ws_producers_add(hass, connection, msg):
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/producers/update",
+    vol.Required("type"): "nivona_nicr/producers/update",
     # NOTE: payload uses "producer_id" because HA's WS framework owns the
     # top-level "id" key (it's the message correlation id). A duplicate
     # `vol.Required("id"): int` here would silently update the wrong row
@@ -503,7 +503,7 @@ async def _ws_producers_update(hass, connection, msg):
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/producers/delete",
+    vol.Required("type"): "nivona_nicr/producers/delete",
     vol.Required("producer_id"): int,
 })
 @websocket_api.require_admin
@@ -683,7 +683,7 @@ async def _structured_call(
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/beans/autofill",
+    vol.Required("type"): "nivona_nicr/beans/autofill",
     vol.Required("brand"): str,
     vol.Required("product"): str,
     vol.Optional("website"): str,
@@ -745,7 +745,7 @@ async def _ws_beans_autofill(hass, connection, msg):
 
 
 def _make_autofill_handler(table: str):
-    """Build a WS handler for ``melitta_barista/<table>/autofill``.
+    """Build a WS handler for ``nivona_nicr/<table>/autofill``.
 
     Mirrors ``_ws_beans_autofill`` but for the additive tables (syrups /
     toppings). The handler takes
@@ -768,7 +768,7 @@ def _make_autofill_handler(table: str):
     slot = f"{table}_autofill"
 
     @websocket_api.websocket_command({
-        vol.Required("type"): f"melitta_barista/{table}/autofill",
+        vol.Required("type"): f"nivona_nicr/{table}/autofill",
         vol.Required("name"): cv.string,
         vol.Required("producer_id"): int,
         vol.Optional("variant"): cv.string,
@@ -850,7 +850,7 @@ def _make_additive_handlers(table: str):
     """Generate list/add/delete WS handlers for a given simple-additive table."""
 
     @websocket_api.websocket_command({
-        vol.Required("type"): f"melitta_barista/{table}/list",
+        vol.Required("type"): f"nivona_nicr/{table}/list",
     })
     @websocket_api.async_response
     async def _ws_list(hass, connection, msg):
@@ -901,7 +901,7 @@ def _make_additive_handlers(table: str):
         })
 
     @websocket_api.websocket_command({
-        vol.Required("type"): f"melitta_barista/{table}/add",
+        vol.Required("type"): f"nivona_nicr/{table}/add",
         vol.Required("name"): str,
         vol.Optional("brand"): str,
         vol.Optional("notes"): str,
@@ -947,7 +947,7 @@ def _make_additive_handlers(table: str):
         _send_versioned(connection, msg["id"], {"id": cursor.lastrowid})
 
     @websocket_api.websocket_command({
-        vol.Required("type"): f"melitta_barista/{table}/delete",
+        vol.Required("type"): f"nivona_nicr/{table}/delete",
         # See producers/delete — "id" collides with the WS message id.
         vol.Required("additive_id"): int,
     })
@@ -971,7 +971,7 @@ def _make_additive_update_handler(table: str):
     """Generate the update handler for an additive table."""
 
     @websocket_api.websocket_command({
-        vol.Required("type"): f"melitta_barista/{table}/update",
+        vol.Required("type"): f"nivona_nicr/{table}/update",
         # See producers/update — "id" collides with the WS message id.
         vol.Required("additive_id"): int,
         vol.Optional("name"): str,
@@ -1046,7 +1046,7 @@ def _make_additive_set_available_handler(table: str):
     """
 
     @websocket_api.websocket_command({
-        vol.Required("type"): f"melitta_barista/{table}/set_available",
+        vol.Required("type"): f"nivona_nicr/{table}/set_available",
         # See producers/update — "id" collides with the WS message id.
         vol.Required("additive_id"): int,
         vol.Required("available"): bool,
@@ -1082,7 +1082,7 @@ _TOPPINGS_SET_AVAILABLE = _make_additive_set_available_handler("toppings")
 # tags --------------------------------------------------------------------
 
 
-@websocket_api.websocket_command({vol.Required("type"): "melitta_barista/tags/list"})
+@websocket_api.websocket_command({vol.Required("type"): "nivona_nicr/tags/list"})
 @websocket_api.async_response
 async def _ws_tags_list(hass, connection, msg):
     """Return the union of explicit flavor_tags + tags ever used by any bean."""
@@ -1108,7 +1108,7 @@ async def _ws_tags_list(hass, connection, msg):
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/tags/add",
+    vol.Required("type"): "nivona_nicr/tags/add",
     vol.Required("name"): str,
 })
 @websocket_api.require_admin
@@ -1129,7 +1129,7 @@ async def _ws_tags_add(hass, connection, msg):
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/tags/delete",
+    vol.Required("type"): "nivona_nicr/tags/delete",
     vol.Required("name"): str,
 })
 @websocket_api.require_admin
@@ -1458,7 +1458,7 @@ def _try_smartchain_structured():
         return None
 
 
-@websocket_api.websocket_command({vol.Required("type"): "melitta_barista/prompts/list"})
+@websocket_api.websocket_command({vol.Required("type"): "nivona_nicr/prompts/list"})
 @websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_prompts_list(hass, connection, msg):
@@ -1482,7 +1482,7 @@ async def _ws_prompts_list(hass, connection, msg):
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/prompts/save",
+    vol.Required("type"): "nivona_nicr/prompts/save",
     vol.Required("slot"): str,
     vol.Required("template"): str,
 })
@@ -1505,7 +1505,7 @@ async def _ws_prompts_save(hass, connection, msg):
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/prompts/preview",
+    vol.Required("type"): "nivona_nicr/prompts/preview",
     vol.Required("slot"): str,
     vol.Optional("entry_id"): str,
 })
@@ -1611,7 +1611,7 @@ async def _ws_prompts_preview(hass, connection, msg):
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "melitta_barista/prompts/reset",
+    vol.Required("type"): "nivona_nicr/prompts/reset",
     vol.Required("slot"): str,
 })
 @websocket_api.require_admin
@@ -1643,7 +1643,7 @@ async def _resolve_prompt(hass, slot: str) -> str:
 # llm agents --------------------------------------------------------------
 
 
-@websocket_api.websocket_command({vol.Required("type"): "melitta_barista/llm/agents"})
+@websocket_api.websocket_command({vol.Required("type"): "nivona_nicr/llm/agents"})
 @websocket_api.async_response
 async def _ws_llm_agents(hass, connection, msg):
     """List available HA conversation agents.
@@ -1668,7 +1668,7 @@ async def _ws_llm_agents(hass, connection, msg):
 # ── api/info — discovery handshake ──────────────────────────────────────
 
 
-@websocket_api.websocket_command({vol.Required("type"): "melitta_barista/api/info"})
+@websocket_api.websocket_command({vol.Required("type"): "nivona_nicr/api/info"})
 @websocket_api.async_response
 async def _ws_api_info(hass: HomeAssistant, connection, msg) -> None:
     """Return the WS API contract version and a snapshot of available types.
@@ -1713,27 +1713,27 @@ async def _ws_api_info(hass: HomeAssistant, connection, msg) -> None:
 
 
 _STATUS_SCHEMA = vol.Schema({
-    vol.Required("type"): "melitta_barista/status",
+    vol.Required("type"): "nivona_nicr/status",
     vol.Required("entry_id"): str,
 })
 
 _DIAG_SCHEMA = vol.Schema({
-    vol.Required("type"): "melitta_barista/diagnostics",
+    vol.Required("type"): "nivona_nicr/diagnostics",
     vol.Required("entry_id"): str,
 })
 
 _DIAG_CLEAR_SCHEMA = vol.Schema({
-    vol.Required("type"): "melitta_barista/diagnostics/clear",
+    vol.Required("type"): "nivona_nicr/diagnostics/clear",
     vol.Required("entry_id"): str,
 })
 
 _RECIPES_LIST_SCHEMA = vol.Schema({
-    vol.Required("type"): "melitta_barista/recipes/list",
+    vol.Required("type"): "nivona_nicr/recipes/list",
     vol.Required("entry_id"): str,
 })
 
 _DIAG_LLM_CALLS_SCHEMA = vol.Schema({
-    vol.Required("type"): "melitta_barista/diagnostics/llm_calls",
+    vol.Required("type"): "nivona_nicr/diagnostics/llm_calls",
 })
 
 

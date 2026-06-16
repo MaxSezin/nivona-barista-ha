@@ -20,7 +20,7 @@ from .protocol import MachineStatus
 
 PARALLEL_UPDATES = 0  # BLE: single connection, serialize via locks
 
-_LOGGER = logging.getLogger("melitta_barista")
+_LOGGER = logging.getLogger("nivona_nicr")
 
 
 PROCESS_LABELS: dict[MachineProcess, str] = {
@@ -79,35 +79,16 @@ async def async_setup_entry(
         MelittaFeaturesSensor(client, entry, name),
     ]
 
-    # Legacy MelittaTotalCupsSensor reads HR id=150 (TOTAL_CUPS_ID) which
-    # is a Melitta-specific register. On Nivona the register doesn't
-    # exist and the sensor stayed at `unknown` (reported in #15). For
-    # non-Melitta brands the equivalent counter is exposed via the
-    # capability-driven `BrandStatSensor` (`total_beverages`, id 213 on
-    # 8000 family, id 215 on 1030, etc.) — no need to register the
-    # Melitta-specific sensor at all.
     # Capabilities may be None at setup time (resolved after BLE connect).
-    # For brands that don't use the legacy total-cups sensor, fall back
-    # to early family detection via the BLE scanner cache so generic
+    # Fall back to early family detection via the BLE scanner cache so
     # capability-driven stat sensors can register without waiting.
     caps = client.capabilities
     if caps is None:
         caps = resolve_caps_from_scanner(hass, entry.data.get(CONF_ADDRESS, ""), client.brand)
 
-    # Legacy Melitta total-cups sensor reads HR id 150 — capability-flagged
-    # because the register doesn't exist on other brands and would surface
-    # as "unknown".
-    if caps is not None and caps.uses_legacy_total_cups_sensor:
-        entities.append(MelittaTotalCupsSensor(client, entry, name))
-
-    # Generic capability-driven stat sensors — only for brands that
-    # expose a stats table AND don't already have a hand-tailored
-    # total-cups sensor (Melitta).
-    if (
-        caps is not None
-        and caps.stats
-        and not caps.uses_legacy_total_cups_sensor
-    ):
+    # Generic capability-driven stat sensors (per-recipe cup counters,
+    # maintenance counters, percent/flag gauges).
+    if caps is not None and caps.stats:
         for descriptor in caps.stats:
             entities.append(BrandStatSensor(client, entry, name, descriptor))
 
@@ -347,46 +328,6 @@ class MelittaFeaturesSensor(_MelittaSensorBase):
         if f is None:
             return {}
         return {"raw": f"0x{int(f):02x}"}
-
-
-class MelittaTotalCupsSensor(_MelittaSensorBase):
-    """Total cups brewed with per-recipe breakdown."""
-
-    _attr_name = "Total Cups"
-    _attr_icon = "mdi:coffee"
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_native_unit_of_measurement = "cups"
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._client.address}_total_cups"
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self._client.add_cups_callback(self._on_cups_update)
-
-    async def async_will_remove_from_hass(self) -> None:
-        await super().async_will_remove_from_hass()
-        self._client.remove_cups_callback(self._on_cups_update)
-
-    @callback
-    def _on_cups_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def available(self) -> bool:
-        return self._client.connected and self._client.total_cups is not None
-
-    @property
-    def native_value(self) -> int | None:
-        return self._client.total_cups
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        counters = self._client.cup_counters
-        if not counters:
-            return {}
-        return {name: count for name, count in counters.items() if count > 0}
 
 
 # ---------------------------------------------------------------------------
