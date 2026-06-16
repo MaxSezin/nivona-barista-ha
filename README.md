@@ -1,41 +1,22 @@
-# Melitta Barista & Nivona for Home Assistant
+# Nivona NICR for Home Assistant
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dzerik&repository=melitta-barista-ha&category=integration)
-
-[![GitHub Release](https://img.shields.io/github/v/release/dzerik/melitta-barista-ha?style=flat-square&include_prereleases)](https://github.com/dzerik/melitta-barista-ha/releases)
-[![GitHub Downloads](https://img.shields.io/github/downloads/dzerik/melitta-barista-ha/total?style=flat-square&label=downloads&cacheSeconds=86400)](https://github.com/dzerik/melitta-barista-ha/releases)
-[![Tests](https://img.shields.io/github/actions/workflow/status/dzerik/melitta-barista-ha/tests.yml?style=flat-square&label=686%20tests)](https://github.com/dzerik/melitta-barista-ha/actions/workflows/tests.yml)
-[![Validate](https://img.shields.io/github/actions/workflow/status/dzerik/melitta-barista-ha/tests.yml?style=flat-square&label=hassfest%2BHACS)](https://github.com/dzerik/melitta-barista-ha/actions)
-[![License](https://img.shields.io/github/license/dzerik/melitta-barista-ha?style=flat-square)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/MaxSezin/nivona-barista-ha?style=flat-square&include_prereleases)](https://github.com/MaxSezin/nivona-barista-ha/releases)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat-square)](https://hacs.xyz)
 [![Home Assistant](https://img.shields.io/badge/HA-2024.1%2B-blue?style=flat-square)](https://www.home-assistant.io/)
 [![BLE](https://img.shields.io/badge/BLE-Bluetooth_LE-blue?style=flat-square)](#)
-[![Brands](https://img.shields.io/badge/brands-Melitta%20%2B%20Nivona-8b5a2b?style=flat-square)](#supported-brands-and-models)
 [![Translations](https://img.shields.io/badge/translations-29_languages-blueviolet?style=flat-square)](#localization)
 
-A custom Home Assistant integration for controlling **Melitta Barista T/TS Smart** and **Nivona NICR 6xx / 7xx / 79x / 9xx / 1030 / 1040** plus **NIVO 8xxx** coffee machines over Bluetooth Low Energy (BLE). Both brands are built on the shared Eugster/Frismag OEM stack, so a single integration drives either. Monitor machine status, brew recipes, adjust settings, trigger maintenance — all from your Home Assistant dashboard.
+A custom Home Assistant integration for controlling **Nivona NICR 6xx / 7xx / 79x / 9xx / 1030 / 1040** and **NIVO 8xxx** coffee machines over Bluetooth Low Energy (BLE). Monitor machine status, select and brew recipes, adjust per-brew parameters (strength, coffee amount, water amount, temperature, milk amount), and trigger maintenance — all from your Home Assistant dashboard.
 
-**This release ships an alpha version of the in-HA admin SPA panel + AI Coffee Sommelier — recipe generation goes through any HA conversation agent (OpenAI / Anthropic / Gemini / GigaChat / SmartChain / Ollama), the result is brewable in one tap. See [AI Coffee Sommelier (alpha)](#ai-coffee-sommelier-alpha) below.**
-
-> 📖 **Documentation site**: [dzerik.github.io/melitta-barista-ha](https://dzerik.github.io/melitta-barista-ha/) — BLE architecture, wire protocol, ADRs and changelog with navigation, search, and rendered Mermaid diagrams.
-
-> **⚠️ Nivona testers wanted.** Nivona support (v0.41.0) is shipped as **alpha** — cryptography and handshake are validated against upstream RE vectors, but the code path has not been live-tested on real Nivona hardware by the maintainer. If you own a **NICR 6xx / 7xx / 79x / 9xx / 1030 / 1040** or **NIVO 8xxx** machine, please try this release and [open a GitHub issue](https://github.com/dzerik/melitta-barista-ha/issues/new) with your results (handshake / status / brew / prompts). See [Nivona support](#nivona-alpha-testers-wanted) below for details.
+> Based on the reverse-engineered Eugster/EFLibrary BLE protocol. The original multi-brand codebase is [dzerik/melitta-barista-ha](https://github.com/dzerik/melitta-barista-ha); this fork strips out Melitta-specific code and ships three bug fixes for Nivona users.
 
 ---
 
-## Supported brands and models
+## Supported models
 
-### Melitta (stable)
-
-| Model | Type ID | BLE Prefixes | Recipes | Bean Hoppers |
-|-------|---------|--------------|---------|--------------|
-| **Barista T Smart** | 258 | 8301, 8311, 8401 | 21 | 1 (single) |
-| **Barista TS Smart** | 259 | 8501, 8601, 8604 | 24 | 2 (dual) |
-
-### Nivona (alpha — testers wanted)
-
-| Family | Representative models | MyCoffee | Strength | Notes |
-|---|---|---|---|---|
+| Family | Representative models | MyCoffee slots | Strength levels | Notes |
+|---|---|:---:|:---:|---|
 | **600** | NICR 660 / 670 / 675 / 680 | 1 | 3 | — |
 | **700** | NICR 756 / 758 / 759 / 768 / 769 / 778 / 779 / 788 / 789 | 4 | 3 | aroma balance |
 | **79x** | NICR 790–797, 799 | 4 | 5 | aroma balance |
@@ -44,81 +25,38 @@ A custom Home Assistant integration for controlling **Melitta Barista T/TS Smart
 | **1030** / **1040** | NICR 1030 / 1040 | 4 | 5 | — |
 | **8000** | NIVO 8101 / 8103 / 8107 | 4 | 5 | different brew opcode |
 
-The brand and machine model are automatically detected from the BLE advertisement (Melitta prefixes `8xxx…` or Nivona, which advertises as either the legacy `NIVONA-NNNNNNNNNN-----` form, the bare `NNNNNNNNNN-----` form, or — on newer firmware like NICR 930 — a 15-digit serial without dashes such as `930254000000000`) and confirmed via the BLE protocol. Nivona firmware does not expose recipe-editing opcodes, so recipe/freestyle/profile entities are suppressed for Nivona entries.
+The machine is auto-detected from the BLE advertisement (`NIVONA-*` name prefix) and confirmed via the handshake protocol.
 
-## Nivona (alpha) — testers wanted
-
-**Status**: the Nivona `BrandProfile` shipped in v0.41.0 is **code-complete and cryptographically validated** against the upstream reverse-engineering vectors from [mpapierski/esp-coffee-bridge](https://github.com/mpapierski/esp-coffee-bridge), but the maintainer does **not own a Nivona machine** and cannot verify live BLE interop. The release is marked pre-release on GitHub.
-
-**What's validated in software**:
-
-- HU handshake verifier against the published vector `FA 48 D1 7B → 7E 6E` (upstream NICR 756)
-- RC4 runtime key `NIV_060616_V10_1*9#3!4$6+4res-?3` (recovered from `de.nivona.mobileapp` 3.8.6)
-- 7 family capability entries with per-family brew opcode / strength levels / fluid scaling
-- Serial-prefix tokenisation for all known model codes (4-char for NIVO 8xxx, 3-char for NICR 6xx/7xx/79x/9xx)
-
-**What live-testing should confirm**:
-
-- [ ] BLE pairing + D-Bus bonding completes
-- [ ] `HU` session setup succeeds on real hardware
-- [ ] `HX` status polling returns sensible `process`/`manipulation`/`progress` values
-- [ ] `HZ` cancel-brew works on an active brew
-- [ ] `HY` prompt confirmation works (flush / move cup)
-- [ ] `HD` register reset returns ACK
-- [ ] `HI` feature bits either return a payload or time out gracefully (both OK)
-
-**How to help**:
-
-1. Enable HACS **Pre-releases** (in HACS settings), install this repo, update to **v0.41.0**.
-2. Pair your Nivona via the normal config-flow — it should be auto-discovered.
-3. [Open an issue](https://github.com/dzerik/melitta-barista-ha/issues/new) with the model, firmware version, and a log snippet filtered on `melitta_barista`.
-
-Crypto and handshake are identical in structure to Melitta; the risk is primarily per-firmware-family quirks in brew payload bytes and stats register IDs.
+---
 
 ## Features
 
-- **Multi-brand, multi-model** — Melitta Barista T/TS Smart + Nivona NICR 6xx / 7xx / 79x / 9xx / 1030 / 1040 + NIVO 8xxx (alpha, NICR 930 validated on real hardware) auto-detected from BLE advertisement; model-specific entity filtering per capability
-- **Real-time status monitoring** — machine state, brewing activity, progress percentage, required user actions, and machine prompts via BLE push notifications
-- **21 or 24 built-in recipes** (Melitta) — select from dropdown and brew with one tap (3 extra recipes on TS model)
-- **Freestyle recipes** (Melitta) — build custom drinks with two configurable components (coffee/milk/water), adjustable intensity, aroma, temperature, shots, and portion sizes
-- **Reset recipe to factory defaults** (Melitta, v0.33.0+) — HD opcode button with auto-refresh of cached recipe attributes
-- **Confirm machine prompts** (v0.34.0+) — dedicated `Confirm Prompt` button + `awaiting_confirmation` binary sensor + optional **global auto-confirm** for soft prompts (move cup, flush); hardware-blocking prompts (fill water, empty trays) remain manual
+- **Real-time status monitoring** — machine state (Ready, Brewing, Cleaning, Descaling, Off), sub-process, progress percentage, required user actions via BLE push notifications
+- **Recipe selection and brew** — pick from the family's built-in recipe list and brew with one tap
+- **Brew parameter overrides** — sliders for strength, coffee amount, water amount, temperature, and milk amount; overrides are applied as a temp-recipe only when you actually change a value
+- **Reset overrides** — dedicated button that clears all override sliders back to machine defaults so you can verify factory amounts
+- **MyCoffee slot sensors** — read-only sensors exposing the per-slot amounts for each MyCoffee preset
+- **Machine settings control** — water hardness, brew temperature, auto-off timer, energy saving, rinsing toggle
 - **Maintenance operations** — easy clean, intensive clean, descaling, filter insert/replace/remove, evaporating, power off
-- **Cancel in-flight brew** — HZ opcode, one-click cancel during any running process
-- **Machine settings control** — water hardness, brew temperature, auto-off timer, energy saving, auto-bean-select (TS)
-- **Feature capability read** (HI, v0.32.0+) — diagnostic sensor exposes machine capability bits (e.g. `IMAGE_TRANSFER`), graceful on firmwares that don't answer
-- **User profiles** (Melitta) — read and edit user profile names on the machine
-- **Cup counters** (Melitta) — total + per-recipe statistics, refreshed after each brew completion
-- **BLE auto-discovery** — integration detects your Melitta or Nivona machine automatically
-- **Encrypted BLE protocol** — full Eugster EFLibrary stack (AES customer-key bootstrap + RC4 stream cipher), per-brand HU verifier tables
-- **🤖 AI Coffee Sommelier (alpha)** — full in-HA admin panel with a Sommelier tab: pick allowed syrups / toppings / milk, mood (multi-select), cup size, dietary, time-of-day-aware occasion, then generate recipes via your chosen conversation agent (OpenAI / Anthropic / Gemini / GigaChat / SmartChain / Ollama). Each recipe arrives with the full step-by-step preparation, dosages and machine-action — all in your HA UI language — and a single ★ to favourite or "Brew this" to run on the machine. See [AI Coffee Sommelier (alpha)](#ai-coffee-sommelier-alpha).
-- **Custom Lovelace card** *(Melitta only — Nivona not yet supported)* — dedicated card available separately: [melitta-barista-card](https://github.com/dzerik/melitta-barista-card)
-- **Standalone PWA** *(Melitta only — Nivona not yet supported)* — full-screen React app for tablets and kiosks: [melitta-barista-app](https://github.com/dzerik/melitta-barista-app)
+- **Cancel in-flight brew** — one-click cancel during any running process
+- **Confirm machine prompts** — dedicated button + binary sensor for flush/move-cup prompts with optional auto-confirm
+- **Clock sync** — automatic or manual sync of the machine RTC to HA local time
+- **AI Coffee Sommelier (alpha)** — in-HA admin panel with recipe generation via any HA conversation agent (OpenAI / Anthropic / Gemini / Ollama)
+- **Encrypted BLE protocol** — full Eugster/EFLibrary stack (AES customer-key bootstrap + RC4 stream cipher, HU handshake with Nivona-specific verifier table)
 - **29 languages** — full localization for all European and Slavic languages
-- **🧪 ESP32 BLE emulator** (unique) — a companion ESP-IDF firmware that impersonates a real Nivona machine at the BLE layer (ADV, AD00 service, encrypted frames, HU handshake, HX status, HE brew). Lets you develop, pair, and brew against Home Assistant **and** the official Nivona Android app without any physical machine. Lives in its own repo: [dzerik/nivona-ble-emulator](https://github.com/dzerik/nivona-ble-emulator).
+- **ESPHome BLE proxy support** — recommended transport for stable long-running operation
 
-## Supported Recipes
+## Bug fixes vs upstream
 
-| # | Recipe | T | TS | # | Recipe | T | TS |
-|---|--------|---|-----|---|--------|---|-----|
-| 1 | Espresso | + | + | 13 | Dead Eye | -- | + |
-| 2 | Ristretto | + | + | 14 | Cappuccino | + | + |
-| 3 | Lungo | + | + | 15 | Espresso Macchiato | + | + |
-| 4 | Espresso Doppio | + | + | 16 | Caffe Latte | + | + |
-| 5 | Ristretto Doppio | + | + | 17 | Cafe au Lait | + | + |
-| 6 | Cafe Creme | + | + | 18 | Flat White | + | + |
-| 7 | Cafe Creme Doppio | + | + | 19 | Latte Macchiato | + | + |
-| 8 | Americano | + | + | 20 | Latte Macchiato Extra | + | + |
-| 9 | Americano Extra | + | + | 21 | Latte Macchiato Triple | + | + |
-| 10 | Long Black | + | + | 22 | Milk | + | + |
-| 11 | Red Eye | -- | + | 23 | Milk Froth | + | + |
-| 12 | Black Eye | -- | + | 24 | Hot Water | + | + |
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | Americano always brewed 40 mL instead of the configured amount | When any override is active, all slider values are now written to the temp-recipe, not just the ones the user explicitly touched |
+| 2 | No water amount slider existed | Added a `Brew Water Amount` number entity (0–240 mL, step 5) |
+| 3 | No way to clear override sliders once set | Added `Reset Brew Overrides` button that fires HA events to reset all sliders and their `user_set` flags |
 
-> Red Eye, Black Eye, and Dead Eye are only available on the Barista TS Smart (dual bean hopper model).
+---
 
-### Nivona recipes per family (alpha)
-
-Nivona machines ship with a **fixed** set of recipes per family (no recipe editing). Selector IDs below are the machine-side byte values used in the brew command.
+## Supported recipes per family
 
 | Family | Recipes |
 |---|---|
@@ -130,635 +68,376 @@ Nivona machines ship with a **fixed** set of recipes per family (no recipe editi
 | **1040** | Espresso, Coffee, Americano, Cappuccino, Caffè Latte, Latte Macchiato, Hot Water, Warm Milk, Frothy Milk |
 | **8000** | Espresso, Coffee, Americano, Cappuccino, Caffè Latte, Latte Macchiato, Milk, Hot Water |
 
-Source: per-family recipe tables in [`brands/nivona.py`](custom_components/melitta_barista/brands/nivona.py), ported from the upstream [mpapierski/esp-coffee-bridge](https://github.com/mpapierski/esp-coffee-bridge/blob/main/src/nivona.cpp) RE effort.
+Nivona firmware does not expose recipe-editing opcodes — recipe list is fixed per family.
+
+---
 
 ## BLE topology — strongly prefer an ESPHome proxy
 
-> 🟢 **The recommended and primary-tested BLE transport for this integration is
-> an [ESPHome `bluetooth_proxy`](https://esphome.io/projects/?type=bluetooth)
-> on a $10 ESP32 board placed near the machine.** That's the path the
-> maintainer develops and tests on; pair / reconnect / handshake / brew
-> protocol logic accumulate test-hours against it day-to-day. The ESP's BLE
-> stack handles `pair=True` natively, sidestepping every BlueZ quirk
-> (D-Bus `Agent1`, `No agent available`, `Authentication failed`,
-> headless-Linux `bluetoothd` crashes) that a host-side BLE adapter can run
-> into.
+> 🟢 **The recommended BLE transport is an [ESPHome `bluetooth_proxy`](https://esphome.io/projects/?type=bluetooth) on a $10 ESP32 board placed near the machine.** The ESP's BLE stack handles `pair=True` natively, sidestepping every BlueZ quirk (D-Bus `Agent1`, `Authentication failed`, headless-Linux `bluetoothd` crashes) that a host-side BLE adapter can run into.
 
-A bare local Bluetooth adapter (Pi onboard BLE, USB dongle, host chipset)
-**also works** and is fully supported — but the local-adapter / BlueZ path
-has fewer accumulated test-hours, so quirks land there first. If you're
-starting from scratch, the proxy route trades ~$10 of hardware for
-noticeably more predictable behaviour. See [`HCL.md`](HCL.md) for confirmed
-adapter / board combinations and known quirks.
+A bare local Bluetooth adapter (Pi onboard BLE, USB dongle, host chipset) also works but is less stable on long-running setups.
 
-The repo ships a ready-to-flash ESPHome config at
-[`esphome/ble-proxy-xiao-c6.yaml`](esphome/ble-proxy-xiao-c6.yaml) for the
-**Seeed XIAO ESP32-C6** (the maintainer's reference board). Any ESP32 / S3 /
-C3 / C6 with stock `bluetooth_proxy` works the same way.
+The repo ships a ready-to-flash ESPHome config at [`esphome/ble-proxy-xiao-c6.yaml`](esphome/ble-proxy-xiao-c6.yaml) for the **Seeed XIAO ESP32-C6**.
 
-### Running HA in a Docker container? Three host-side prerequisites
+### Running HA in a Docker container?
 
-If you run **Home Assistant Container** (Docker) and want to use the host's
-local Bluetooth adapter (not an ESPHome proxy), three prerequisites are
-often missed and surface as confusing `HU handshake timeout` /
-`Authentication failed` errors:
+Three prerequisites are often missed:
 
-1. **Install `bluez` on the host** (the full daemon, not just `bluez-obexd`):
+1. **Install `bluez` on the host:**
    ```bash
    sudo apt update && sudo apt install -y bluez
    sudo systemctl enable --now bluetooth
    ```
-   Without `bluetoothd` running on the host, GATT pairing never completes.
 
-2. **Mount the D-Bus socket into the container.** Add to `docker run` or
-   `docker-compose.yml`:
+2. **Mount the D-Bus socket:**
    ```yaml
    volumes:
      - /run/dbus:/run/dbus:ro
    ```
 
-3. **Use `--privileged` or grant `NET_ADMIN` capability**, and run with
-   `--net=host`. These match HA's expected discovery behaviour and let the
-   integration scan + connect over the host BLE stack.
-
-If a previously-attempted machine is stuck, reset its BlueZ cache from the
-host:
-```bash
-bluetoothctl disconnect <MAC>
-bluetoothctl remove <MAC>
-# then put the machine in pair mode and re-add the integration
-```
-
-Verified working: NICR 779 on Mac mini (Apple Broadcom BCM2046B1) /
-Ubuntu 24.04 / BlueZ 5.72 / HA Container — see [`HCL.md`](HCL.md) for the
-full hardware list.
+3. **Use `--privileged` and `--net=host`.**
 
 ---
 
 ## Requirements
 
 - **Home Assistant** 2024.1 or newer
-- **BLE transport** — one of:
-  - **ESPHome BLE proxy on an ESP32** *(recommended; primary tested path —
-    see above)*. The proxy sits in the machine's RF neighbourhood and
-    bridges BLE traffic over Wi-Fi into HA's `bluetooth` integration.
-  - **Local Bluetooth adapter** — Pi onboard BLE / USB dongle / host
-    chipset. Supported but less-tested. See [`HCL.md`](HCL.md) for
-    adapter-specific notes.
-- **Supported machine** — one of:
-  - **Melitta Barista T Smart** or **Melitta Barista TS Smart** (stable)
-  - **Nivona NICR 6xx / 7xx / 79x / 9xx / 1030 / 1040** or **NIVO 8xxx** (alpha)
-- **BLE range** — for ESPHome proxy: keep the proxy within ~5 m of the
-  machine; for a local adapter: keep the Home Assistant host within ~10 m
-  of the machine, line of sight where possible.
+- **BLE transport** — ESPHome BLE proxy *(recommended)* or local Bluetooth adapter
+- **Supported machine** — Nivona NICR 6xx / 7xx / 79x / 9xx / 1030 / 1040 or NIVO 8xxx
+- **BLE range** — proxy within ~5 m of the machine; local adapter within ~10 m
+
+---
 
 ## Installation
 
-### Via HACS (recommended)
+### Via HACS
 
-1. Open HACS in your Home Assistant instance.
-2. Go to **Integrations** and select the three-dot menu in the top right corner.
-3. Choose **Custom repositories**.
-4. Add the repository URL: `https://github.com/dzerik/melitta-barista-ha`
-5. Select category **Integration** and click **Add**.
-6. Search for "Melitta Barista Smart & Nivona" in HACS and install it.
-7. Restart Home Assistant.
+1. Open HACS → **Integrations** → three-dot menu → **Custom repositories**.
+2. Add: `https://github.com/MaxSezin/nivona-barista-ha`, category **Integration**.
+3. Search for **Nivona NICR** and install.
+4. Restart Home Assistant.
 
-### Manual Installation
+### Manual
 
-1. Download the latest release from the [GitHub releases page](https://github.com/dzerik/melitta-barista-ha/releases).
-2. Copy the `custom_components/melitta_barista` directory into your Home Assistant `config/custom_components/` directory.
+1. Download or clone this repository.
+2. Copy `custom_components/nivona_nicr` into your HA `config/custom_components/` directory.
 3. Restart Home Assistant.
 
-## Custom Lovelace Card
-
-> **⚠️ Melitta only.** The card currently expects Melitta-only entities (recipe/profile/freestyle selects, named cup counters) and does not yet handle the Nivona entity layout (per-family stats sensors, Nivona recipe select, brew override numbers). Nivona support is on the roadmap for the card project — track via its issue tracker.
-
-A dedicated Lovelace card with recipe buttons, status display, and progress bar is available as a separate repository:
-
-**[melitta-barista-card](https://github.com/dzerik/melitta-barista-card)** -- install via HACS (Frontend > Custom repositories) or manually.
-
-## Standalone PWA (Tablet / Kiosk)
-
-> **⚠️ Melitta only.** Same caveat as the card — the PWA assumes Melitta-shaped entities (Brew / Freestyle / Stats / Service / Settings tabs all wired against Melitta extensions `HC` / `HJ`). Nivona machines will pair via Home Assistant and entities will appear there, but the PWA UI does not yet render them.
-
-A standalone React PWA for controlling the coffee machine is available as a separate project:
-
-**[melitta-barista-app](https://github.com/dzerik/melitta-barista-app)** -- a full-screen progressive web app designed for wall-mounted tablets and kiosk displays.
-
-- Connects to Home Assistant via WebSocket API using a long-lived access token
-- Auto-detects the Melitta machine from HA entities
-- Five tabs: **Brew**, **Freestyle**, **Stats**, **Service**, **Settings**
-- Real-time brewing progress with cancel support
-- Installable as a PWA on any device (Android, iOS, desktop)
-- Dark coffee-themed UI optimized for touch
-
-### Brew
-
-Browse all available recipes in a grid, list, or carousel view. Quick-access buttons for favorite recipes and user profiles at the top. Select a recipe and tap **Brew** to start.
-
-![Brew](docs/screenshots/brew.png)
-
-### Freestyle
-
-Build a custom drink from scratch with two configurable components. Adjust process type, portion size, intensity, aroma, temperature, and shots for each component. A live glass preview updates as you tweak the parameters.
-
-![Freestyle](docs/screenshots/freestyle.png)
-
-### Stats
-
-Cup counter dashboard showing total brewed cups and per-recipe statistics with progress bars.
-
-![Stats](docs/screenshots/stats.png)
-
-### Service
-
-Maintenance operations: easy clean, intensive clean, descaling, evaporating, water filter management, and power off.
-
-![Service](docs/screenshots/service.png)
-
-### Settings
-
-Machine configuration: energy saving, auto bean select, rinsing toggle, water hardness, auto-off timer, and brew temperature.
-
-![Settings](docs/screenshots/settings.png)
-
-## ESP32 BLE Emulator (companion project)
-
-A companion firmware that impersonates a real Nivona coffee machine at the BLE layer — useful for developing, pairing, brewing, and stress-testing without any physical machine. To the best of the maintainer's knowledge, no other open-source Home Assistant coffee-machine integration ships a paired emulator of the hardware it drives.
-
-**Repository:** [dzerik/nivona-ble-emulator](https://github.com/dzerik/nivona-ble-emulator) (split out of this repo in v0.51.x for independent release cadence; tags `emu-v0.2.0` through `emu-v0.7.0` carry forward).
-
-**What it emulates**
-
-- Advertisement: byte-exact ADV + scan response (company ID `0x0319`, customer ID `0xFFFF`, Eugster manufacturer payload, DIS in SR) — discovered by HA *and* by the official **Nivona Android app** just like a real machine
-- GATT: AD00 service with AD01 (write), AD02 (notify), DIS (0x180A) with manufacturer / model / serial
-- Protocol: full Eugster/EFLibrary stack — frame parser, RC4 stream cipher, AES customer-key bootstrap, HU handshake with per-brand verifier, HR/HW/HX/HE/HA/HB opcodes
-- State: a small FSM ramps `process`/`progress` during HE brew (3 → 4 → 3 for NIVO 8000, 8 → 11 → 8 for other Nivona families) and emits unsolicited HX notifications
-
-**What you get**
-
-- End-to-end pair → discover → brew flow against HA with no hardware
-- Regression harness for the BLE client, config flow, and brand-aware HX parser
-- Ground truth for the multi-brand architecture: because the emulator speaks Nivona on a bench next to a real Melitta, protocol differences cannot silently regress
-
-Supported targets: **ESP32-C6** (primary) and **ESP32-S3**. See the [emulator README](https://github.com/dzerik/nivona-ble-emulator#readme) for build / flash / troubleshooting.
+---
 
 ## Configuration
 
 ### Step 1: Enable Bluetooth on the machine
 
-Make sure Bluetooth is enabled on your coffee machine (refer to the machine manual).
+Make sure Bluetooth is enabled on your Nivona (refer to the machine manual).
 
 ### Step 2: Add the integration
 
-1. In Home Assistant, go to **Settings** > **Devices & Services** > **Add Integration**.
-2. Search for **Melitta Barista Smart & Nivona**.
-3. If BLE discovery has found your machine, it will appear automatically. Otherwise, you can enter the MAC address manually.
+1. Go to **Settings → Devices & Services → Add Integration**.
+2. Search for **Nivona NICR**.
+3. If BLE discovery found your machine it will appear automatically; otherwise enter the MAC address manually.
 
 ### Step 3: Pair the device
 
-The integration requires BLE pairing (bonding) with your coffee machine. **The machine only accepts SMP from a new BLE central when it is explicitly in pairing mode** — this is a one-time step per central.
+BLE bonding is required on first setup only.
 
-1. On the machine, open the **Settings** menu and navigate to **Bluetooth** / **Connectivity** / **App connection**.
-2. Enable **pairing mode** — the BLE icon on the machine should start blinking (path varies by firmware: look for "Pair new device" / "App-Verbindung" / "Reset connection").
-3. Press **Submit** in the Home Assistant setup dialog.
-4. The integration will connect and pair automatically. If the machine shows a confirmation prompt, accept it.
+1. On the machine, open **Settings → Bluetooth / Connectivity / App connection** and enable **pairing mode** (the BLE icon should blink).
+2. Press **Submit** in the HA setup dialog.
+3. The integration connects and pairs automatically.
 
-> **Note:** The machine supports only one active BLE connection at a time. Make sure any official manufacturer app (Melitta Connect / Nivona App) is disconnected before pairing with Home Assistant.
-
-If the device is already paired (e.g., via `bluetoothctl`), the integration detects this and skips the pairing step. Subsequent reconnects do not require pairing mode — only the very first bond does.
+> **Note:** the machine supports only one BLE connection at a time. Disconnect the official Nivona app before pairing.
 
 ### Manual pairing via bluetoothctl
 
-If automatic pairing does not work, you can pair manually via SSH on the Home Assistant host:
-
 ```bash
 bluetoothctl
-remove F1:2C:72:3F:75:ED        # Replace with your machine's MAC address
-scan on                          # Wait for the machine to appear
+remove F1:2C:72:3F:75:ED   # your machine's MAC
+scan on
 pair F1:2C:72:3F:75:ED
 trust F1:2C:72:3F:75:ED
-info F1:2C:72:3F:75:ED           # Verify: Paired: yes, Bonded: yes, Trusted: yes
+info F1:2C:72:3F:75:ED      # verify: Paired: yes, Bonded: yes, Trusted: yes
 exit
 ```
 
-Then add the integration in Home Assistant as described above.
+---
 
-Once configured, the integration creates a device with all available entities filtered for your machine model.
-
-## Entities Reference
+## Entities reference
 
 ### Sensors
 
 | Entity | Description |
 |--------|-------------|
-| State | Current machine state: Ready, Brewing, Cleaning, Descaling, Off, etc. |
-| Activity | Current sub-process: Grinding, Extracting, Steaming, Dispensing Water, Preparing |
-| Progress | Brewing or cleaning progress as a percentage |
-| Action Required | Required user action: Fill Water, Empty Trays, Brew Unit Removed, Move Cup to Frother, Flush Required |
-| Connection | BLE connection status: Connected or Disconnected (diagnostic) |
-| Firmware | Firmware version reported by the machine (diagnostic) |
-| Features | Machine capability bits from HI response, plus raw byte in attributes (diagnostic, disabled by default) |
-| Total Cups | Total brewed count, per-recipe breakdown in attributes (Melitta only) |
+| State | Machine state: Ready, Brewing, Cleaning, Descaling, Off, … |
+| Activity | Sub-process: Grinding, Extracting, Steaming, Dispensing Water, Preparing |
+| Progress | Brewing / cleaning progress (%) |
+| Action Required | Required user action: Fill Water, Empty Trays, Move Cup to Frother, Flush Required, … |
+| Connection | BLE connection status (diagnostic) |
+| Firmware | Firmware version (diagnostic) |
+| Features | Machine capability bits from HI response (diagnostic, disabled by default) |
+| MyCoffee slot N — … | Per-slot amounts for coffee / water / milk / milk foam (read-only, diagnostic) |
+| Stat sensors | Per-family capability-driven counters and gauges (beverages, maintenance, %) |
 
 ### Binary Sensors
 
 | Entity | Description |
 |--------|-------------|
-| Awaiting Confirmation | `on` when the machine is showing a user-confirmable prompt (fill water, move cup, flush, etc.) — pairs with the `Confirm Prompt` button (PROBLEM device class) |
+| Awaiting Confirmation | `on` when the machine shows a user-confirmable prompt |
 
 ### Select
 
 | Entity | Description |
 |--------|-------------|
-| Recipe | Dropdown selector for all available recipes (21 on T, 24 on TS). |
-| Profile | Active user profile selector. |
-| Freestyle Process 1 | Component 1 process: coffee, milk, or water. |
-| Freestyle Intensity 1 | Component 1 brew intensity. |
-| Freestyle Temperature 1 | Component 1 temperature level. |
-| Freestyle Shots 1 | Component 1 number of shots. |
-| Freestyle Process 2 | Component 2 process: none, coffee, milk, or water. |
-| Freestyle Intensity 2 | Component 2 brew intensity. |
-| Freestyle Temperature 2 | Component 2 temperature level. |
-| Freestyle Shots 2 | Component 2 number of shots. |
+| Recipe | Brew recipe selector (family-specific list) |
+| Brand settings | Per-family setting dropdowns (from machine capabilities) |
 
 ### Buttons
 
-| Entity | Brand | Description |
-|--------|-------|-------------|
-| Brew | Melitta | Brew the recipe selected in the Recipe dropdown. Available when machine is Ready and a recipe is selected. |
-| Brew Freestyle | Melitta | Brew the custom freestyle recipe using current freestyle parameters. |
-| Cancel | both | Cancel the currently running operation (HZ). |
-| Confirm Prompt | both | Acknowledge an active machine prompt (move cup, flush, fill water, etc.) via HY. Available only when `awaiting_confirmation` binary sensor is on. |
-| Reset Recipe | Melitta | Reset the currently selected recipe to factory defaults (HD). Available when machine is Ready and a recipe is selected. Recipe cache auto-refreshes. |
-| Easy Clean | both | Start the easy clean cycle (configuration). |
-| Intensive Clean | both | Start the intensive clean cycle (configuration). |
-| Descaling | both | Start the descaling process (configuration). |
-| Filter Insert / Replace / Remove | both | Water filter operations (configuration). |
-| Evaporating | both | Steam evaporating cycle (configuration). |
-| Switch Off | both | Power off the machine (configuration). |
+| Entity | Description |
+|--------|-------------|
+| Brew | Brew the selected recipe with current override values |
+| Brew My Coffee | Brew from the active MyCoffee slot |
+| Cancel | Cancel the currently running operation |
+| Confirm Prompt | Acknowledge an active machine prompt (HY) |
+| Reset Brew Overrides | Clear all override sliders and reset `user_set` flags — next brew uses machine defaults |
+| Factory Reset Settings | Reset all machine-wide settings to factory defaults |
+| Factory Reset Recipes | Reset per-recipe customizations to factory defaults |
+| Easy Clean | Start easy clean cycle |
+| Intensive Clean | Start intensive clean cycle |
+| Descaling | Start descaling |
+| Filter Insert / Replace / Remove | Water filter operations |
+| Evaporating | Steam evaporating cycle |
+| Switch Off | Power off the machine |
 
-### Numbers
+### Numbers (brew overrides)
+
+| Entity | Range | Default | Description |
+|--------|:-----:|:-------:|-------------|
+| Brew Strength | 0–4 | 2 | Strength level (0 = very mild, 4 = very strong) |
+| Brew Coffee Amount | 0–120 mL | 40 | Coffee amount in mL |
+| Brew Water Amount | 0–240 mL | 100 | Water amount in mL |
+| Brew Temperature | 0–2 | 1 | Temperature (0 = cold, 1 = normal, 2 = high) |
+| Brew Milk Amount | 0–240 mL | 100 | Milk amount in mL |
+
+> Overrides are written to the machine only when at least one slider has been explicitly changed (`user_set = true`). Use **Reset Brew Overrides** to go back to machine defaults.
+
+### Numbers (machine settings)
 
 | Entity | Range | Description |
-|--------|-------|-------------|
-| Water Hardness | 1 -- 4 | Water hardness level for descaling schedule (configuration). |
-| Auto Off After | 15 -- 240 min | Idle time before automatic power off (configuration). |
-| Brew Temperature | 0 -- 2 | Brew temperature level: 0 = Cold, 1 = Normal, 2 = High (configuration). |
-| Freestyle Portion 1 | 5 -- 250 ml | Component 1 portion size in milliliters. |
-| Freestyle Portion 2 | 0 -- 250 ml | Component 2 portion size in milliliters (0 = disabled). |
+|--------|:-----:|-------------|
+| Water Hardness | 1–4 | Water hardness for descaling schedule |
+| Auto Off After | 15–240 min | Idle time before auto power off |
 
 ### Switches
 
-| Entity | Model | Description |
-|--------|-------|-------------|
-| Energy Saving | T, TS | Enable or disable energy saving mode (configuration). |
-| Auto Bean Select | TS only | Enable or disable automatic bean blend selection (configuration). |
-| Rinsing Disabled | T, TS | Enable or disable the automatic rinsing cycle (configuration). |
+| Entity | Description |
+|--------|-------------|
+| Energy Saving | Enable / disable energy saving mode |
+| Rinsing Disabled | Enable / disable automatic rinsing |
+| Auto Bean Select | Enable / disable automatic bean blend selection |
 
 ### Text
 
-| Entity | Model | Description |
-|--------|-------|-------------|
-| Profile 1-4 Name | T | User profile names (read/write, configuration). |
-| Profile 1-8 Name | TS | User profile names (read/write, configuration). |
-| Freestyle Name | T, TS | Custom name for the freestyle recipe. |
+| Entity | Description |
+|--------|-------------|
+| Profile N Name | User profile names (read/write) |
+
+### Time
+
+| Entity | Description |
+|--------|-------------|
+| Machine Clock | Read-only; writable via `sync_clock` service or auto-sync |
+
+---
 
 ## Services
 
-The integration provides five custom services.
+### `nivona_nicr.sync_clock`
 
-### `melitta_barista.reset_recipe` (Melitta)
-
-Reset a recipe to factory defaults via the HD opcode. Recipe cache is auto-refreshed so the UI / PWA show factory values immediately.
+Push HA local time to the machine RTC.
 
 | Parameter | Type | Required | Description |
 |-----------|------|:--------:|-------------|
-| `entity_id` | string | Yes | Any button entity of the target machine |
-| `recipe_id` | int (200–223) | No | Target recipe; defaults to currently selected |
+| `entity_id` | string | Yes | Any entity from the target machine |
 
-### `melitta_barista.confirm_prompt`
+### `nivona_nicr.confirm_prompt`
 
-Acknowledge an active machine prompt via HY (e.g. "move cup to frother", "flush required"). Fails with a `ServiceValidationError` if no prompt is active.
-
-| Parameter | Type | Required | Description |
-|-----------|------|:--------:|-------------|
-| `entity_id` | string | Yes | Any button entity of the target machine |
-
-### `melitta_barista.brew_freestyle`
-
-Brew a custom recipe with fully configurable parameters.
+Acknowledge an active machine prompt via HY.
 
 | Parameter | Type | Required | Description |
 |-----------|------|:--------:|-------------|
-| `entity_id` | string | Yes | Any entity from the Melitta device |
-| `name` | string | Yes | Display name for the recipe |
-| `process1` | string | Yes | Primary process: `coffee`, `milk`, `water` |
-| `intensity1` | string | No | Intensity: `very_mild`, `mild`, `medium`, `strong`, `very_strong` |
-| `aroma1` | string | No | Aroma: `standard`, `intense` |
-| `temperature1` | string | No | Temperature: `cold`, `normal`, `high` |
-| `shots1` | string | No | Shots: `none`, `one`, `two`, `three` |
-| `portion1_ml` | int | No | Portion size in ml (20-300) |
-| `process2` | string | No | Secondary process (same options + `none`) |
-| `two_cups` | bool | No | Brew two cups (default: false) |
+| `entity_id` | string | Yes | Any entity from the target machine |
 
-### `melitta_barista.brew_directkey`
+### `nivona_nicr.repair_connection`
 
-Brew from a DirectKey profile slot (uses the active profile's personalized recipe).
+Manual one-tap recovery for a wedged BLE pairing. Walks every entry, reloads the ESPHome proxy that owns each scanner.
 
-| Parameter | Type | Required | Description |
-|-----------|------|:--------:|-------------|
-| `entity_id` | string | Yes | Any entity from the Melitta device |
-| `category` | string | Yes | `espresso`, `cafe_creme`, `cappuccino`, `latte_macchiato`, `milk`, `milk_froth`, `water` |
-| `two_cups` | bool | No | Brew two cups (default: false) |
-
-### `melitta_barista.save_directkey`
-
-Save a recipe to a DirectKey profile slot.
-
-| Parameter | Type | Required | Description |
-|-----------|------|:--------:|-------------|
-| `entity_id` | string | Yes | Any entity from the Melitta device |
-| `category` | string | Yes | Recipe category (same as brew_directkey) |
-| `profile_id` | int | No | Profile ID (default: active profile) |
-| (recipe params) | — | — | Same as brew_freestyle |
-
-### `melitta_barista.repair_connection`
-
-Manual one-tap recovery for a wedged BLE pairing (see [BLE pairing recovery](#ble-pairing-recovery)). Walks every Melitta entry, finds the ESPHome proxy that owns each scanner, and reloads it to evict HA-side BLEDevice cache. No parameters. Equivalent to Configure → Repair connection in Options Flow.
+---
 
 ## Options
 
-Configure the integration via **Settings → Devices & Services → Melitta Barista Smart & Nivona → Configure**.
+Configure via **Settings → Devices & Services → Nivona NICR → Configure**.
 
-### Basic Settings
+### Basic
 
-| Parameter | Default | Range | Description |
-|-----------|:-------:|:-----:|-------------|
-| Poll interval | 5s | 1-60s | How often to poll machine status |
-| Reconnect delay | 5s | 1-60s | Initial delay before reconnect attempt |
-| Reconnect max delay | 300s | 30-3600s | Maximum backoff between reconnects |
-| Poll errors before disconnect | 3 | 1-20 | Consecutive errors before forcing disconnect |
-| Frame timeout | 5s | 2-30s | BLE command response timeout |
-| **Auto-confirm soft prompts** | off | bool | When on, the integration automatically sends HY for soft prompts (move cup, flush). Hardware prompts (fill water, empty trays) stay manual. |
+| Parameter | Default | Description |
+|-----------|:-------:|-------------|
+| Poll interval | 5 s | Status poll frequency |
+| Reconnect delay | 5 s | Initial delay before reconnect |
+| Reconnect max delay | 300 s | Maximum backoff between reconnects |
+| Poll errors before disconnect | 3 | Consecutive errors before forced disconnect |
+| Frame timeout | 5 s | BLE command response timeout |
+| Auto-confirm soft prompts | off | Auto-send HY for move-cup / flush prompts |
 
-### Advanced Settings
+### Advanced
 
-| Parameter | Default | Range | Description |
-|-----------|:-------:|:-----:|-------------|
-| BLE connect timeout | 15s | 5-60s | Timeout for BLE connection establishment |
-| Pairing timeout | 30s | 10-120s | Timeout for BLE pairing during setup |
-| Recipe retries | 3 | 1-10 | Retry attempts for recipe read/write operations |
-| Initial connect delay | 3s | 0-30s | Wait before first connection after setup |
+| Parameter | Default | Description |
+|-----------|:-------:|-------------|
+| BLE connect timeout | 15 s | Timeout for BLE connection |
+| Pairing timeout | 30 s | Timeout for BLE pairing during setup |
+| Recipe retries | 3 | Retry attempts for recipe operations |
+| Initial connect delay | 3 s | Wait before first connection after setup |
+| Auto-sync clock | on | Sync clock on reconnect and daily |
+| Clock drift threshold | 2 min | Minimum drift before writing clock |
+| Daily sync time | 03:17 | Time for daily clock sync |
 
-## How Data is Updated
+---
 
-| Data | Method | Frequency |
-|------|--------|-----------|
-| Machine status | BLE push notifications | Every ~5 seconds |
-| Cup counters | Read after each brew completes | On brew finish |
-| Profile data | Read once on connect | On connection |
-| Settings | Read on entity setup | On demand |
+## Automation examples
 
-## AI Coffee Sommelier (alpha)
-
-> **🧪 Alpha — end-to-end works, expect rough edges.**
->
-> The whole pipeline is now in place: an in-HA admin SPA panel with a Sommelier tab generates recipes via any HA conversation agent and turns them into a Freestyle brew on the machine with one tap. We're flagging it alpha because (a) the result quality depends heavily on the chosen LLM and the producer page it grounds against, (b) the favourites browser / history view aren't built yet (the backend is — `/sommelier/favorites/*`, `/sommelier/history/list`), and (c) the WebSocket schemas may still tighten before 1.0. Please report issues with the `sommelier` label.
-
-**End-to-end flow that works today**:
-
-1. Open the **Melitta** sidebar entry → **Beans** tab → add producers, add beans (use **Заполнить через LLM** for autofill from brand + product + producer URL).
-2. **Additives** tab → add syrups / toppings / milk you actually keep.
-3. **Settings** tab → pick your LLM model from the dropdown (OpenAI, Anthropic, Gemini, GigaChat, SmartChain, Ollama — anything registered as an HA conversation agent). Edit the prompt template if you like; the JSON Schema for the response is auto-appended.
-4. **Sommelier** tab → narrow allowed syrups / toppings / milk via chips, set mood (multi-select), cup size, occasion (suggested by local clock), temperature, caffeine, dietary — hit **Generate**.
-5. Each recipe card shows the **machine portion** (`Machine: coffee 30 ml strong …`) plus a **numbered step list with dosages** (`1. Brew espresso — 30 ml`, `2. Add Vanilla syrup — 15 ml`, `3. Pour foamed milk — Oat — 120 ml`) — in your HA UI language. ★ to favourite, "Brew this" to send the freestyle payload to the machine.
-
-**Highlights**:
-
-- **Hybrid structured output**: when SmartChain (or a similar provider) is selected, the request goes through that integration's native JSON Schema mode (OpenAI Structured Outputs / Gemini responseSchema / Anthropic tool-use / Ollama 0.5+ format=schema). For everything else we append the JSON Schema to the prompt and run a Pydantic-validated text-with-retry path.
-- **Locale-aware**: HA's UI language is forwarded so names / descriptions / step instructions come back in Russian / German / French / etc., while enum values stay English so the schema validates regardless.
-- **Free-form vocabularies**: flavor tags, milk types, syrups, toppings — all open strings. Add «Ультрапастеризованное 3%» or «дрип-кофе» — it just works.
-- **Diagnostics → Recent LLM calls**: the panel surfaces every LLM round-trip with the full assembled prompt, raw response, validation errors, and the path that handled it (`smartchain_structured` vs `text_with_validation`).
-
-**Requirements**: at least one `conversation` integration configured in HA. We recommend [SmartChain](https://github.com/dzerik/ha-smartchain) (multi-provider through LangChain) when you want native structured-output mode; any single-provider HA Conversation agent works through the text+validation fallback.
-
-**Tracking**: see open issues tagged `sommelier` in the [issue tracker](https://github.com/dzerik/melitta-barista-ha/issues).
-
-## Architecture
-
-The integration is built on a **three-layer abstraction** (v0.40.0+) that cleanly separates:
-
-1. **BLE transport** (shared) — pairing, reconnect, write/notify GATT characteristics.
-2. **Eugster/EFLibrary core** (shared) — frame format `0x53…0x45`, one's-complement checksum, RC4 stream cipher, `HU/HV/HR/HW/HX/HE/HZ/HY/HD/HI/HA/HB` opcodes.
-3. **Brand profile** (pluggable) — RC4 runtime key, HU verifier table, advertisement regex, supported opcode extensions (`HC`/`HJ` for Melitta only), per-family machine capabilities.
-
-Adding a third Eugster OEM brand (e.g. if public RE emerges for Koenig, KitchenAid, etc.) is a matter of dropping a new file into `brands/`. See [`docs/adr/001-brand-profile-abstraction.md`](docs/adr/001-brand-profile-abstraction.md).
-
-## Use Cases
-
-- **Smart Home Dashboard** — monitor coffee machine status, cup counters, and maintenance needs on your HA dashboard
-- **Morning Routine** — automated brewing at a scheduled time via HA automations
-- **Family Profiles** — switch between user profiles for personalized drinks
-- **Maintenance Alerts** — get notified when descaling, filter change, or other maintenance is needed
-- **Kiosk Mode** *(Melitta only)* — use the [standalone PWA](https://github.com/dzerik/melitta-barista-app) on a wall-mounted tablet
-
-## Automation Examples
-
-### Morning Espresso
+### Morning brew
 
 ```yaml
 automation:
-  - alias: "Morning Espresso at 7:00"
+  - alias: "Morning Coffee at 7:00"
     trigger:
       - platform: time
         at: "07:00"
     condition:
       - condition: state
-        entity_id: sensor.melitta_state
-        state: "ready"
+        entity_id: sensor.nivona_state
+        state: "Ready"
     action:
       - service: button.press
         target:
-          entity_id: button.melitta_brew_espresso
+          entity_id: button.nivona_brew
 ```
 
-### Notify When Coffee is Ready
+### Notify when coffee is ready
 
 ```yaml
 automation:
   - alias: "Coffee Ready Notification"
     trigger:
       - platform: state
-        entity_id: sensor.melitta_activity
-        from: "extracting"
-        to: "idle"
+        entity_id: sensor.nivona_activity
+        from: "Extracting"
+        to: "None"
     action:
       - service: notify.mobile_app
         data:
-          message: "Your coffee is ready! ☕"
+          message: "Your coffee is ready!"
 ```
 
-### Maintenance Reminder
+### Maintenance alert
 
 ```yaml
 automation:
-  - alias: "Coffee Machine Maintenance Reminder"
+  - alias: "Coffee Machine Maintenance"
     trigger:
       - platform: state
-        entity_id: sensor.melitta_action_required
+        entity_id: sensor.nivona_action_required
     condition:
       - condition: not
         conditions:
           - condition: state
-            entity_id: sensor.melitta_action_required
-            state: "none"
+            entity_id: sensor.nivona_action_required
+            state: "None"
     action:
       - service: notify.mobile_app
         data:
-          message: "Coffee machine needs attention: {{ states('sensor.melitta_action_required') }}"
+          message: "Nivona needs attention: {{ states('sensor.nivona_action_required') }}"
 ```
 
-## Removing the Integration
-
-1. Go to **Settings → Devices & Services → Melitta Barista Smart & Nivona**
-2. Click the three-dot menu (⋮) → **Delete**
-3. The BLE connection will be closed and all entities removed automatically
-4. If installed via HACS: go to **HACS → Integrations → Melitta Barista Smart & Nivona → Uninstall**
-
-## Localization
-
-The integration includes translations for 29 languages:
-
-English, Russian, Ukrainian, German, Polish, Czech, Slovak, French, Italian, Spanish, Portuguese, Dutch, Swedish, Danish, Norwegian, Finnish, Hungarian, Romanian, Greek, Turkish, Bulgarian, Croatian, Serbian, Slovenian, Bosnian, Macedonian, Estonian, Latvian, Lithuanian.
-
-## Known Limitations
-
-- **BLE range**: Bluetooth Low Energy has a limited range (typically up to 10 meters). Walls and other obstacles reduce effective range. Consider placing a Bluetooth-capable device (e.g., an ESPHome BLE proxy) near the machine if your Home Assistant host is too far away.
-- **Single connection**: The machine supports only one active BLE connection at a time. If the official Melitta app is connected, the integration will not be able to connect, and vice versa.
-- **Single BLE client**: The integration operates as a single BLE client. User profile names can be read and edited, but per-profile recipe customizations are not yet exposed.
-- **Polling interval**: Machine status is polled every 5 seconds while connected. There may be a brief delay between a physical action and the state update in Home Assistant.
-- **Recipe parameters**: Built-in recipes use the machine's stored default parameters. For full customization, use the Freestyle recipe builder with adjustable process, intensity, temperature, shots, and portion for each component.
-
-## ESPHome BLE proxy (recommended transport)
-
-The integration supports two BLE transports:
-
-- **Local BlueZ adapter** on the Home Assistant host (works out of the box on HA OS hardware with a Bluetooth radio).
-- **ESPHome BLE proxy** — a small ESP32 board flashed with our reference config, placed near the machine. Strongly recommended if you have any range or interference issues. Significantly more stable on long-running setups.
-
-### Reference firmware (in this repo)
-
-`esphome/` contains two production-tested configs:
-
-| File | Hardware | Notes |
-|---|---|---|
-| `ble-proxy-xiao-c6.yaml` | Seeed Studio XIAO ESP32-C6 | Single-core RISC-V, RF switch for external antenna |
-| `ble-proxy-xiao-s3.yaml` | Seeed Studio XIAO ESP32-S3 | Dual-core LX7 with 8MB PSRAM, more connection slots |
-
-Both ship with the following recovery-related extras on top of the upstream ESPHome reference:
-
-- **Custom action `clear_ble_bonds`** — wipes the ESP NVS bond table (`esp_ble_remove_bond_device` for every stored peer). Surfaces in HA as `esphome.<proxy_name>_clear_ble_bonds`.
-- **Custom action `disconnect_ble_peer`** — surgical GAP disconnect of a stuck connection slot. Surfaces as `esphome.<proxy_name>_disconnect_ble_peer` with a `peer_mac` parameter.
-- **`factory_reset` button** — nuke option for the entire NVS (last-resort recovery; WiFi creds + OTA password are baked into firmware, so they survive).
-- **`safe_mode` button** — boots into recovery mode (API + OTA only) for fixing bad configs.
-- **`BLE bonds` text sensor** — live count from `esp_ble_get_bond_device_num()` updated every 30 s. Lets you confirm `clear_ble_bonds` actually emptied NVS.
-
-After flashing one of these to your proxy, all four buttons + the bond-count sensor appear in HA under the proxy's device card, and the two custom services become callable from Developer Tools or automations.
-
-> **Important:** if you used an earlier release of these YAML files, **reflash via the ESPHome dashboard (OTA)** to pick up `clear_ble_bonds`, `disconnect_ble_peer`, and the `factory_reset` button. Without these the recovery flow below falls back to a partial path.
+---
 
 ## BLE pairing recovery
 
-Long quiet periods, ESP-proxy restarts, machine factory resets, and certain Home Assistant restart sequences can leave the pairing wedged on either side. The symptom is one or more of:
+Symptoms of a wedged pairing: machine shows a red Bluetooth icon, logs show `HU handshake timeout`, ESPHome logs show `auth fail reason=82`.
 
-- The machine displays a **red** Bluetooth indicator (it's actively rejecting our handshake).
-- Logs show `HU handshake timeout` from the integration.
-- ESPHome proxy logs show `auth fail reason=82` (SMP rejection) and/or `Connection request ignored, state: ESTABLISHED`.
+### 1. Soft repair (automatic)
 
-The integration ships three escalating recovery paths, all of which used to require deleting and re-adding the entry. They now work without removing the integration.
-
-### 1. Soft repair (automatic, plus manual button)
-
-After **5 consecutive failed connects** the reconnect loop automatically reloads the ESPHome proxy ConfigEntry. This evicts the cached BLEDevice from `habluetooth._previous_service_info`; the next advertisement rebuilds it with a fresh `source` and `address_type`. Manual trigger: **Settings → Devices & Services → your Melitta entry → Configure → Repair connection**.
-
-A Repair Issue surfaces in the UI the moment auto-trigger fires, with a link to issue #10 and a 3-step recovery list.
+After 5 consecutive failed connects the reconnect loop automatically reloads the ESPHome proxy ConfigEntry. Manual trigger: **Devices & Services → Nivona NICR → Configure → Repair connection**.
 
 ### 2. Force re-pair (hard)
 
-When the soft path isn't enough, **Configure → Force re-pair (hard)**:
+**Configure → Force re-pair**: disconnects client, calls `esphome.<proxy>_clear_ble_bonds`, disconnects the stuck peer, reloads the proxy entry, re-arms reconnect. **Put the machine into pairing mode before pressing Submit.**
 
-1. Disconnects our client.
-2. Calls `esphome.<proxy>_clear_ble_bonds` — ESP NVS bond table wiped.
-3. Calls `esphome.<proxy>_disconnect_ble_peer` — surgical GAP disconnect, releases the stuck `state: ESTABLISHED` connection slot.
-4. Reloads the ESPHome ConfigEntry — evicts HA-side cached BLEDevice.
-5. Re-arms our reconnect loop.
+### 3. Proxy factory reset
 
-**Before pressing Submit, put the machine into pairing mode** (Settings → Bluetooth → Pair new device / App-Verbindung — path varies by firmware). Without pairing mode the machine refuses the fresh SMP exchange with `auth fail reason=82`. Once the bond is created, subsequent reconnects do not need pairing mode.
+Press the **Factory reset** button on the proxy device card as a last resort. WiFi and OTA password survive (baked into firmware).
 
-### 3. Nuke (the ESP factory reset button)
-
-If even Force re-pair doesn't work, press the **Factory reset** button on the proxy device card. It wipes the entire ESP NVS — bond table, every cached preference. WiFi and OTA password survive (they're baked into the firmware). After the device reboots, run Force re-pair from HA with the machine in pairing mode.
-
-### Manual service / automation
-
-The service `melitta_barista.repair_connection` runs the same soft-repair routine across every Melitta entry. Useful as a one-tap button or scheduled automation. The two ESPHome services (`clear_ble_bonds`, `disconnect_ble_peer`) are also exposed for granular control.
+---
 
 ## Troubleshooting
 
-**The machine is not discovered during setup**
-- Verify that Bluetooth is enabled on the machine (check the machine display or manual).
-- Ensure the Home Assistant host has a working Bluetooth adapter. Run `bluetoothctl scan on` on the host to verify BLE scanning works.
-- Move the Home Assistant host closer to the machine.
-- Make sure no other device (e.g., the Melitta app on your phone) is currently connected to the machine.
-
-**Connection fails with "D-Bus connection lost"**
-- The device is not paired with the Home Assistant host. Follow the pairing instructions in the Configuration section above.
-- If already paired, try removing and re-pairing: `bluetoothctl remove <MAC> && bluetoothctl pair <MAC>`.
+**Machine not discovered**
+- Verify Bluetooth is enabled on the machine.
+- Ensure the HA host has a working BLE adapter (`bluetoothctl scan on`).
+- Move the adapter or machine closer.
 
 **Connection drops frequently**
-- BLE connections are sensitive to distance and interference. Reduce the distance between the host and the machine.
-- Consider using an ESPHome Bluetooth proxy placed near the machine.
-- Check Home Assistant logs for BLE-related errors: **Settings** > **System** > **Logs**, then filter for `melitta_barista`.
-
-**Buttons show as unavailable**
-- Recipe and maintenance buttons are only available when the machine state is "Ready". Check the State sensor.
-- If the State sensor shows "unavailable", the BLE connection may be lost. Check the Connection sensor.
-
-**Settings do not update**
-- Number and switch entities read values from the machine. If the machine is disconnected, the last known value is displayed. Reconnect and trigger a manual refresh if needed.
+- Use an ESPHome BLE proxy near the machine.
+- Check logs for BLE errors.
 
 **Enable debug logging**
-
-Add the following to your `configuration.yaml`:
 
 ```yaml
 logger:
   default: info
   logs:
-    melitta_barista: debug
+    nivona_nicr: debug
 ```
 
-Restart Home Assistant and reproduce the issue, then check the logs.
+---
+
+## Architecture
+
+Three-layer abstraction:
+
+1. **BLE transport** — pairing, reconnect, GATT write/notify.
+2. **Eugster/EFLibrary core** — frame format `0x53…0x45`, one's-complement checksum, RC4 stream cipher, all opcodes (`HU/HV/HR/HW/HX/HE/HZ/HY/HD/HI`).
+3. **Nivona brand profile** — RC4 key `NIV_060616_V10_1*9#3!4$6+4res-?3`, HU verifier table, advertisement regex, per-family capabilities.
+
+---
+
+## Removing the integration
+
+1. **Settings → Devices & Services → Nivona NICR → ⋮ → Delete**
+2. If installed via HACS: **HACS → Integrations → Nivona NICR → Uninstall**
+
+---
+
+## Localization
+
+29 languages: English, Russian, Ukrainian, German, Polish, Czech, Slovak, French, Italian, Spanish, Portuguese, Dutch, Swedish, Danish, Norwegian, Finnish, Hungarian, Romanian, Greek, Turkish, Bulgarian, Croatian, Serbian, Slovenian, Bosnian, Macedonian, Estonian, Latvian, Lithuanian.
+
+---
 
 ## Disclaimer
 
-This project is an independent, open-source, non-commercial integration created for personal and home automation purposes. It is **not affiliated with, endorsed by, or connected to Melitta Group Management GmbH & Co. KG, Nivona Apparate GmbH, Eugster/Frismag AG**, or any of their subsidiaries or affiliates.
+This project is an independent, open-source, non-commercial integration. It is **not affiliated with, endorsed by, or connected to Nivona Apparate GmbH, Eugster/Frismag AG**, or any of their subsidiaries.
 
-"Melitta", "Barista T Smart", "Barista TS Smart", "Caffeo", and the Melitta logo are registered trademarks of Melitta Group Management GmbH & Co. KG. "Nivona", "NICR", "NIVO", "NIVO 8000", and the Nivona logo are registered trademarks of Nivona Apparate GmbH. "Eugster", "Frismag", and associated product names are trademarks of Eugster/Frismag AG. All product names, logos, brands, and graphical assets are the property of their respective owners and are used here solely for identification and interoperability purposes.
+"Nivona", "NICR", "NIVO", and the Nivona logo are registered trademarks of Nivona Apparate GmbH. All product names and logos are property of their respective owners and are used here solely for identification and interoperability purposes.
 
-This software is not intended for commercial use or the generation of revenue. See [NOTICE](NOTICE) for full legal details.
+See [NOTICE](NOTICE) for full legal details.
+
+---
 
 ## Contributing
 
-Contributions are welcome. Please open an issue or submit a pull request on [GitHub](https://github.com/dzerik/melitta-barista-ha).
-
-1. Fork the repository.
-2. Create a feature branch.
-3. Make your changes and add tests where applicable.
-4. Submit a pull request with a clear description of the changes.
+Contributions are welcome. Open an issue or submit a pull request at [github.com/MaxSezin/nivona-barista-ha](https://github.com/MaxSezin/nivona-barista-ha).
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT License](LICENSE)
